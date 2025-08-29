@@ -1,13 +1,14 @@
 from google import genai
 from google.genai import types
 from google.genai.types import GenerateContentConfig
+from GroundTruth import loadSheet
 
-from loadGDriveSheet import loadGoogleSheet
+#from loadGDriveSheet import loadGoogleSheet
 from pydantic import BaseModel
 
 import CompanyReportFile
-from storeGroundTruth import storeMetricExtrationRow
-
+#from storeGroundTruth import storeMetricExtrationRow
+from Fullcontext_main import insertIntoMetricExtraction
 
 class IndicatorExtraction(BaseModel):
   indicator_id: str
@@ -19,7 +20,7 @@ class IndicatorExtraction(BaseModel):
 
 client = genai.Client(api_key="AIzaSyDBwyLmuojZQk0a1RcTyc8pJ_-37BrGfKY")
 
-def summarizeDoc(documents: list[CompanyReportFile]):
+def promptDocuments(documents: list[CompanyReportFile]):
 
   prompts = generatePromptlist()
 
@@ -62,19 +63,17 @@ def summarizeDoc(documents: list[CompanyReportFile]):
         response_metadata = response.usage_metadata
         parsed_indicator: IndicatorExtraction = response.parsed
 
-        storeMetricExtrationRow("Airlines", "QuantasAirways", "2024", parsed_indicator, response_metadata, thoughts)
-
+        insertIntoMetricExtraction("Airlines", doc.company_name, doc.period, parsed_indicator, response_metadata, thoughts)
 
 def generatePromptlist():
   prompts = []
 
-  indicators = loadGoogleSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:I")
+  indicators = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:I")
   #print(indicators.columns)
   for index, row in indicators.iterrows():
     prompts.append(promptTemplate(row))
 
   return prompts
-
 
 def promptTemplate(indicatorInfos):
   prompt = f""""Extract the following Information from the provided document:

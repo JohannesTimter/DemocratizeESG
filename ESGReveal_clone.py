@@ -1,24 +1,21 @@
-import os.path
 import io
 
-from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 from CompanyReportFile import Topic
 
 from CompanyReportFile import CompanyReportFile
-from Gemini import summarizeDoc
+from Gemini import promptDocuments
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 ca100_folder = '1ysF7PHBu29_0LGV-c22iwBoPx8X_NS9N' #ClimateActive100 Drive Folder
 
 
-def main():
-  creds = createCreds()
+def old_main():
+  creds = Credentials.from_authorized_user_file("token.json", SCOPES)
 
   companyReportFiles: list[CompanyReportFile] = []
 
@@ -62,14 +59,58 @@ def main():
 
             print(f"reports retrieved: {len(companyReportFiles)}")
 
-            summarizeDoc(companyReportFiles)
-
-
+            promptDocuments(companyReportFiles)
 
   except HttpError as error:
-    # TODO(developer) - Handle errors from drive API.
     print(f"An error occurred: {error}")
 
+def main():
+  companyYearReports = retrieveCompanyYearReports("Airlines", "QuantasAirways", "2024")
+
+  for companyYearReport in companyYearReports:
+    print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}")
+
+  promptDocuments(companyYearReports)
+
+def retrieveCompanyYearReports(industry, companyName, year):
+  creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+  try:
+    service = build("drive", "v3", credentials=creds)
+    industry_folders = getFilesInFolder(service, ca100_folder)
+    for industry_folder in industry_folders:
+      if industry_folder['name'] == industry:
+        company_folders = getFilesInFolder(service, industry_folder['id'])
+        for company_folder in company_folders:
+          if company_folder['name'] == companyName:
+            company_report_files = getFilesInFolder(service, company_folder['id'])
+            companyReports = handleCompanyFiles(company_report_files, industry, companyName, service, year)
+            return companyReports
+  except HttpError as error:
+    print(f"An error occurred: {error}")
+
+def handleCompanyFiles(company_report_files, industry, company, service, year):
+  companyReports: list[CompanyReportFile] = []
+
+  for company_report_file in company_report_files:
+    if company_report_file['mimeType'] == 'application/vnd.google-apps.folder':
+      if "ESG" in company_report_file['name']:
+        topic = Topic.ESG
+      elif "Financial" in company_report_file['name']:
+        topic = Topic.FINANCIAL
+      else:
+        topic = Topic.ANNUAL_REPORT
+      specific_company_report_files = getFilesInFolder(service, company_report_file['id'])
+      for specific_company_report_file in specific_company_report_files:
+        if year in specific_company_report_file['name']:
+          companyReports.append(CompanyReportFile(industry, company, year, topic, specific_company_report_file['mimeType'],
+                                                  download_file(service, specific_company_report_file['id'])))
+    elif year in company_report_file['name']:
+      companyReports.append(
+        CompanyReportFile(industry, company, year, Topic.ANNUAL_REPORT, company_report_file['mimeType'],
+                          download_file(service, company_report_file['id'])))
+
+  return companyReports
 
 def getFilesInFolder(service, folder_id):
   # Call the Drive v3 API
@@ -87,27 +128,8 @@ def getFilesInFolder(service, folder_id):
   sorted_items = sorted(items, key=lambda item: item['name'].lower())
   return sorted_items
 
-def createCreds():
-  creds = None
-  if os.path.exists("token.json"):
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-  if not creds or not creds.valid:
-    if creds and creds.expired and creds.refresh_token:
-      creds.refresh(Request())
-    else:
-      flow = InstalledAppFlow.from_client_secrets_file(
-        "credentials.json", SCOPES
-      )
-      creds = flow.run_local_server(port=0)
-    # Save the credentials for the next run
-    with open("token.json", "w") as token:
-      token.write(creds.to_json())
-  return creds
-
-def download_file(service, real_file_id):
+def download_file(service, file_id):
   try:
-    file_id = real_file_id
-
     request = service.files().get_media(fileId=file_id)
     file = io.BytesIO()
     downloader = MediaIoBaseDownload(file, request)

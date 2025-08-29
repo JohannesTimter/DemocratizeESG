@@ -9,13 +9,15 @@ class Topic(str, Enum):
 
 @dataclass
 class CompanyReportFile:
+    industry: str
     company_name: str
     period: int
     topic: Topic
     mimetype: str
     file_value: bytes
 
-    def __init__(self, company_name: str, period: int, topic: Topic, mimetype: str, file_value: bytes):
+    def __init__(self, industry: str, company_name: str, period: int, topic: Topic, mimetype: str, file_value: bytes):
+        self.industry = industry
         self.company_name = company_name
         self.period = period
         self.topic = topic

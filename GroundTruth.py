@@ -3,7 +3,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import pandas as pd
 
-from MySQL_client import insertIntoGroundtruth
+from Fullcontext_main import insertIntoGroundtruth
 from createGoogleAccessToken import SCOPES
 
 # The ID and range of a sample spreadsheet.
@@ -24,7 +24,7 @@ def main():
     for report_index, report_row in groundtruthreport_df.iterrows():
       insertIntoGroundtruth(overview_row, report_row)
 
-def loadSheet(spreadsheet_id, range):
+def loadSheet(spreadsheet_id, spreadsheet_range):
   """Shows basic usage of the Sheets API.
   Prints values from a sample spreadsheet.
   """
@@ -35,7 +35,7 @@ def loadSheet(spreadsheet_id, range):
     sheet = service.spreadsheets()
     result = (
         sheet.values()
-        .get(spreadsheetId=spreadsheet_id, range=range)
+        .get(spreadsheetId=spreadsheet_id, range=spreadsheet_range)
         .execute()
     )
     values = result.get("values", [])
