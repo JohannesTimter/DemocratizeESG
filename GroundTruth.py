@@ -3,7 +3,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import pandas as pd
 
-from Fullcontext_main import insertIntoGroundtruth
+from MySQL_client import insertIntoGroundtruth
 from createGoogleAccessToken import SCOPES
 
 # The ID and range of a sample spreadsheet.

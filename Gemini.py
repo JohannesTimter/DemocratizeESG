@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 import CompanyReportFile
 #from storeGroundTruth import storeMetricExtrationRow
-from Fullcontext_main import insertIntoMetricExtraction
+from MySQL_client import insertIntoMetricExtraction
 
 class IndicatorExtraction(BaseModel):
   indicator_id: str
