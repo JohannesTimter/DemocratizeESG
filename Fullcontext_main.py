@@ -20,7 +20,7 @@ topic_order = {
 }
 
 def main():
-  companyYearReports = retrieveCompanyYearReports("Chemicals", "Dow", "2024")
+  companyYearReports = retrieveCompanyYearReports("Chemicals", "Bayer", "2021")
 
   for companyYearReport in companyYearReports:
     print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}")

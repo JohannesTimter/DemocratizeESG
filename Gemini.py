@@ -16,7 +16,7 @@ class IndicatorExtraction(BaseModel):
   page_number: str
   section: str
 
-client = genai.Client(api_key="AIzaSyDBwyLmuojZQk0a1RcTyc8pJ_-37BrGfKY")
+client = genai.Client()
 
 def promptDocuments(documents: list[CompanyReportFile]):
 
