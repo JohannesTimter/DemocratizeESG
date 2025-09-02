@@ -13,12 +13,17 @@ from Gemini import promptDocuments
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 ca100_folder = '1ysF7PHBu29_0LGV-c22iwBoPx8X_NS9N' #ClimateActive100 Drive Folder
 
+topic_order = {
+    Topic.ESG: 0,
+    Topic.ANNUAL_REPORT: 1,
+    Topic.FINANCIAL: 2,
+}
 
 def main():
-  companyYearReports = retrieveCompanyYearReports("Airlines", "QuantasAirways", "2024")
+  companyYearReports = retrieveCompanyYearReports("Chemicals", "Dow", "2024")
 
   for companyYearReport in companyYearReports:
-    print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}")
+    print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}")
 
   promptDocuments(companyYearReports)
 
@@ -35,7 +40,11 @@ def retrieveCompanyYearReports(industry, companyName, year):
           if company_folder['name'] == companyName:
             company_report_files = getFilesInFolder(service, company_folder['id'])
             companyReports = handleCompanyFiles(company_report_files, industry, companyName, service, year)
-            return companyReports
+            sorted_companyReports = sorted(
+              companyReports,
+              key=lambda report: (topic_order.get(report.topic), report.file_size)
+            )
+            return sorted_companyReports
   except HttpError as error:
     print(f"An error occurred: {error}")
 
@@ -54,11 +63,11 @@ def handleCompanyFiles(company_report_files, industry, company, service, year):
       for specific_company_report_file in specific_company_report_files:
         if year in specific_company_report_file['name']:
           companyReports.append(CompanyReportFile(industry, company, year, topic, specific_company_report_file['mimeType'],
-                                                  download_file(service, specific_company_report_file['id'])))
+                                                  download_file(service, specific_company_report_file['id']), specific_company_report_file['size']))
     elif year in company_report_file['name']:
       companyReports.append(
         CompanyReportFile(industry, company, year, Topic.ANNUAL_REPORT, company_report_file['mimeType'],
-                          download_file(service, company_report_file['id'])))
+                          download_file(service, company_report_file['id']), company_report_file['size']))
 
   return companyReports
 
@@ -67,7 +76,7 @@ def getFilesInFolder(service, folder_id):
   query = f"'{folder_id}' in parents"
   results = (
     service.files()
-    .list(q=query, pageSize=100, fields="nextPageToken, files(id, name, mimeType, webViewLink, webContentLink)")
+    .list(q=query, pageSize=100, fields="nextPageToken, files(id, name, mimeType, webViewLink, webContentLink, size)")
     .execute()
   )
   items = results.get("files", [])
