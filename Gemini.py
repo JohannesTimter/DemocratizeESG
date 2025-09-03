@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import httpx
@@ -23,6 +24,75 @@ class IndicatorExtraction(BaseModel):
 
 client = genai.Client()
 
+async def promptDocumentsAsync(documents: list[CompanyReportFile]):
+  for doc in documents:
+    prompts = generatePromptlist(doc)
+    tasks = []
+    for indicatorID in prompts:
+      task = getGeminiResponseAsync(doc, prompts, indicatorID)
+      tasks.append(task)
+
+    results = await asyncio.gather(*tasks)
+
+    for result in results:
+      response = result[0]
+      elapsed_time = result[1]
+      indicatorID = result[2]
+      thoughts = ""
+      for part in response.candidates[0].content.parts:
+        if not part.text:
+          continue
+        if part.thought:
+          thoughts = part.text
+      response_metadata = response.usage_metadata
+      parsed_indicator: IndicatorExtraction = response.parsed
+      parsed_indicator.indicator_id = indicatorID
+
+      insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
+
+
+async def getGeminiResponseAsync(doc, prompts, indicatorID):
+  response = None
+  start = 0
+  for attempt in range(max_retries):
+    start = time.time()
+    try:
+      response = await client.aio.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+          types.Part.from_bytes(
+            data=doc.file_value,
+            mime_type=doc.mimetype,
+          ),
+          prompts[indicatorID]],
+        config=GenerateContentConfig(
+          thinking_config=types.ThinkingConfig(
+            include_thoughts=True
+          ),
+          response_mime_type="application/json",
+          response_schema=IndicatorExtraction
+        )
+      )
+
+    except (httpx.RemoteProtocolError, genai.errors.ServerError) as e:
+      print(f"Caught an error: {e}")
+      if attempt < max_retries - 1:
+        delay = initial_delay_seconds * (2 ** attempt)
+        print(f"Retrying in {delay} seconds...")
+        time.sleep(delay)
+      else:
+        print("Max retries reached. The API call has failed.")
+    except genai.errors.ClientError as e:
+      print(f"Caught a (Resource error?): {e.code}. Sleeping for a minute")
+      if attempt < max_retries - 1:
+        await asyncio.sleep(60)
+
+  end = time.time()
+  elapsed_time = int(end - start)
+  print(response.text.replace('\n', ' ').replace('\r', ''))
+  print(f"Elapsed time: {elapsed_time} s")
+  return response, elapsed_time, indicatorID
+
 def promptDocuments(documents: list[CompanyReportFile]):
 
   for doc in documents:
@@ -32,7 +102,7 @@ def promptDocuments(documents: list[CompanyReportFile]):
       print(f"Name: {doc.company_name}, Period: {doc.period}, Type: {doc.mimetype}, Topic: {doc.topic}")
 
       start = time.time()
-      response = getGeminiResponse(doc, indicatorID, prompts)
+      response = getGeminiResponse(doc, prompts[indicatorID])
       end = time.time()
       elapsed_time = int(end - start)
       print(response.text)
@@ -55,7 +125,7 @@ def promptDocuments(documents: list[CompanyReportFile]):
 
       insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
 
-def getGeminiResponse(doc, indicatorID, prompts):
+def getGeminiResponse(doc, prompt):
   response = None
   for attempt in range(max_retries):
     try:
@@ -66,7 +136,7 @@ def getGeminiResponse(doc, indicatorID, prompts):
             data=doc.file_value,
             mime_type=doc.mimetype,
           ),
-          prompts[indicatorID]],
+          prompt],
         config=GenerateContentConfig(
           thinking_config=types.ThinkingConfig(
             include_thoughts=True

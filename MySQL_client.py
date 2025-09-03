@@ -77,8 +77,8 @@ def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, r
                    "WHERE industry = %s AND company_name = %s AND year = %s AND indicator_id = %s")
             val = (convertIsDisclosed(parsed_indicator.isDisclosed), parsed_indicator.value, parsed_indicator.unit,
                    parsed_indicator.page_number, createDocumentName(sourceDoc), parsed_indicator.section,
-                   response_metadata.cached_content_token_count, response_metadata.total_token_count, thoughts,
-                   sourceDoc.industry, sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id, elapsed_time)
+                   response_metadata.cached_content_token_count, response_metadata.total_token_count, thoughts, elapsed_time,
+                   sourceDoc.industry, sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id)
             mycursor.execute(sql, val)
 
             mydb.commit()

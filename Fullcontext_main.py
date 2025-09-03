@@ -1,3 +1,4 @@
+import asyncio
 import io
 
 from google.oauth2.credentials import Credentials
@@ -7,7 +8,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from CompanyReportFile import Topic
 
 from CompanyReportFile import CompanyReportFile
-from Gemini import promptDocuments
+from Gemini import promptDocuments, promptDocumentsAsync
 from GroundTruth import loadSheet
 
 # If modifying these scopes, delete the file token.json.
@@ -22,7 +23,7 @@ topic_order = {
     Topic.FINANCIAL: 2,
 }
 
-def main():
+async def main():
 
   groundtruth_reportsList = loadSheet(groundtruth_sheet_id, groundtruth_sheet_range)
   for index, row in groundtruth_reportsList.iterrows():
@@ -35,7 +36,8 @@ def main():
     for companyYearReport in companyYearReports:
       print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}, Counter: {companyYearReport.counter}")
 
-    promptDocuments(companyYearReports)
+    #promptDocuments(companyYearReports)
+    await promptDocumentsAsync(companyYearReports)
 
 def retrieveCompanyYearReports(industry, companyName, year):
   creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -122,4 +124,4 @@ def download_file(service, file_id):
   return file.getvalue()
 
 if __name__ == "__main__":
-  main()
+  asyncio.run(main())
