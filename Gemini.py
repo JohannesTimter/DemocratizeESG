@@ -1,3 +1,6 @@
+import time
+
+import httpx
 from google import genai
 from google.genai import types
 from google.genai.types import GenerateContentConfig
@@ -7,6 +10,8 @@ from pydantic import BaseModel
 import CompanyReportFile
 from MySQL_client import insertIntoMetricExtraction, selectDisclosedIndicatorIDs
 
+max_retries = 3
+initial_delay_seconds = 2
 
 class IndicatorExtraction(BaseModel):
   isDisclosed: int = 1
@@ -26,25 +31,12 @@ def promptDocuments(documents: list[CompanyReportFile]):
     for indicatorID in prompts:
       print(f"Name: {doc.company_name}, Period: {doc.period}, Type: {doc.mimetype}, Topic: {doc.topic}")
 
-      response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-          types.Part.from_bytes(
-            data=doc.file_value,
-            mime_type=doc.mimetype,
-          ),
-          prompts[indicatorID]],
-        config=GenerateContentConfig(
-          thinking_config=types.ThinkingConfig(
-            include_thoughts=True
-          ),
-          response_mime_type = "application/json",
-          response_schema = IndicatorExtraction
-        )
-      )
-
-
+      start = time.time()
+      response = getGeminiResponse(doc, indicatorID, prompts)
+      end = time.time()
+      elapsed_time = int(end - start)
       print(response.text)
+      print(f"Elapsed time: {elapsed_time} s")
       #print(response.usage_metadata)
       #print(f"Cached Tokens: {response.usage_metadata.cached_content_token_count}, Total Token: {response.usage_metadata.total_token_count}")
 
@@ -61,7 +53,37 @@ def promptDocuments(documents: list[CompanyReportFile]):
       parsed_indicator: IndicatorExtraction = response.parsed
       parsed_indicator.indicator_id = indicatorID
 
-      insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts)
+      insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
+
+def getGeminiResponse(doc, indicatorID, prompts):
+  response = None
+  for attempt in range(max_retries):
+    try:
+      response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+          types.Part.from_bytes(
+            data=doc.file_value,
+            mime_type=doc.mimetype,
+          ),
+          prompts[indicatorID]],
+        config=GenerateContentConfig(
+          thinking_config=types.ThinkingConfig(
+            include_thoughts=True
+          ),
+          response_mime_type="application/json",
+          response_schema=IndicatorExtraction
+        )
+      )
+    except (httpx.RemoteProtocolError, genai.errors.ServerError, genai.errors.ClientError) as e:
+      print(f"Caught a remote protocol error: {e}")
+      if attempt < max_retries - 1:
+        delay = initial_delay_seconds * (2 ** attempt)
+        print(f"Retrying in {delay} seconds...")
+        time.sleep(delay)
+      else:
+        print("Max retries reached. The API call has failed.")
+  return response
 
 def generatePromptlist(doc: CompanyReportFile):
   prompts = {}
@@ -69,12 +91,15 @@ def generatePromptlist(doc: CompanyReportFile):
   indicators = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:I")
   alreadyDisclosedIndicators = selectDisclosedIndicatorIDs(doc)
 
-  #print(indicators.columns)
+  if doc.topic == CompanyReportFile.Topic.FINANCIAL:
+    finance_indicators = ["lowCarbon_revenue", "environmental_ex", "revenue", "profit", "employees"]
+    indicators = indicators.loc[indicators['IndicatorID'].isin(finance_indicators)]
+
   for index, row in indicators.iterrows():
     if row['IndicatorID'] not in alreadyDisclosedIndicators:
       prompts[row['IndicatorID']] = promptTemplate(row)
-    else:
-      print(f"{row['IndicatorID']} is already disclosed, not prompting it again.")
+
+  print(f"Following indicators are already disclosed and will not be prompted again: {",".join(alreadyDisclosedIndicators)}")
 
   return prompts
 

@@ -8,10 +8,13 @@ from CompanyReportFile import Topic
 
 from CompanyReportFile import CompanyReportFile
 from Gemini import promptDocuments
+from GroundTruth import loadSheet
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 ca100_folder = '1ysF7PHBu29_0LGV-c22iwBoPx8X_NS9N' #ClimateActive100 Drive Folder
+groundtruth_sheet_id = '18HCMbUmXcK9N2d4GziwUrHUgEHnc81ZH_4v-r-uJKcI' #Sheet with list of groundtruth sheets
+groundtruth_sheet_range = "GroundTruth!A1:F"
 
 topic_order = {
     Topic.ESG: 0,
@@ -20,12 +23,19 @@ topic_order = {
 }
 
 def main():
-  companyYearReports = retrieveCompanyYearReports("Chemicals", "Bayer", "2021")
 
-  for companyYearReport in companyYearReports:
-    print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}")
+  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, groundtruth_sheet_range)
+  for index, row in groundtruth_reportsList.iterrows():
+    if row['Collected'] == "TRUE":
+      print(f"{row['Company']} already collected, skipping")
+      continue
 
-  promptDocuments(companyYearReports)
+    companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
+
+    for companyYearReport in companyYearReports:
+      print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}, Counter: {companyYearReport.counter}")
+
+    promptDocuments(companyYearReports)
 
 def retrieveCompanyYearReports(industry, companyName, year):
   creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -51,23 +61,31 @@ def retrieveCompanyYearReports(industry, companyName, year):
 def handleCompanyFiles(company_report_files, industry, company, service, year):
   companyReports: list[CompanyReportFile] = []
 
+  esgCounter, finCounter, annCounter = 0, 0, 0
+  relevantCounter = None
+
   for company_report_file in company_report_files:
     if company_report_file['mimeType'] == 'application/vnd.google-apps.folder':
       if "ESG" in company_report_file['name']:
         topic = Topic.ESG
+        relevantCounter = esgCounter
       elif "Financial" in company_report_file['name']:
         topic = Topic.FINANCIAL
+        relevantCounter = finCounter
       else:
         topic = Topic.ANNUAL_REPORT
+        relevantCounter = annCounter
       specific_company_report_files = getFilesInFolder(service, company_report_file['id'])
       for specific_company_report_file in specific_company_report_files:
         if year in specific_company_report_file['name']:
+          relevantCounter += 1
           companyReports.append(CompanyReportFile(industry, company, year, topic, specific_company_report_file['mimeType'],
-                                                  download_file(service, specific_company_report_file['id']), specific_company_report_file['size']))
+                                                  download_file(service, specific_company_report_file['id']), specific_company_report_file['size'], relevantCounter))
     elif year in company_report_file['name']:
+      annCounter += 1
       companyReports.append(
         CompanyReportFile(industry, company, year, Topic.ANNUAL_REPORT, company_report_file['mimeType'],
-                          download_file(service, company_report_file['id']), company_report_file['size']))
+                          download_file(service, company_report_file['id']), company_report_file['size'], annCounter))
 
   return companyReports
 
