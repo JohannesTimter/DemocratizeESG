@@ -1,3 +1,4 @@
+import mysql.connector
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -22,7 +23,10 @@ def main():
     groundtruthreport_df = loadSheet(groundtruthreport_sheetID, groundTruthReport_range)
 
     for report_index, report_row in groundtruthreport_df.iterrows():
-      insertIntoGroundtruth(overview_row, report_row)
+      try:
+        insertIntoGroundtruth(overview_row, report_row)
+      except mysql.connector.IntegrityError as duplicate_error:
+        print(duplicate_error.msg)
 
 def loadSheet(spreadsheet_id, spreadsheet_range):
   """Shows basic usage of the Sheets API.

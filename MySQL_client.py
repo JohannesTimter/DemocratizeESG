@@ -62,9 +62,9 @@ def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, r
                "unit, pagenumber, source_title, text_section, cached_content_token_count, total_token_count, thought_summary, elapsed_time)"
                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
         val = (sourceDoc.industry, sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id, convertIsDisclosed(parsed_indicator.isDisclosed),
-                parsed_indicator.value, parsed_indicator.unit, parsed_indicator.page_number,
-                createDocumentName(sourceDoc), parsed_indicator.section, response_metadata.cached_content_token_count,
-                response_metadata.total_token_count, thoughts, elapsed_time)
+                parsed_indicator.value[:2999], parsed_indicator.unit, parsed_indicator.page_number,
+                createDocumentName(sourceDoc), parsed_indicator.section[:2999], response_metadata.cached_content_token_count,
+                response_metadata.total_token_count, thoughts[:4999], elapsed_time)
         mycursor.execute(sql, val)
 
         mydb.commit()
@@ -75,9 +75,9 @@ def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, r
             sql = ("UPDATE extraction_attempt2 "
                    "SET not_disclosed = %s, value = %s, unit = %s, pagenumber = %s, source_title = %s, text_section = %s, cached_content_token_count = %s, total_token_count = %s, thought_summary = %s, elapsed_time = %s "
                    "WHERE industry = %s AND company_name = %s AND year = %s AND indicator_id = %s")
-            val = (convertIsDisclosed(parsed_indicator.isDisclosed), parsed_indicator.value, parsed_indicator.unit,
-                   parsed_indicator.page_number, createDocumentName(sourceDoc), parsed_indicator.section,
-                   response_metadata.cached_content_token_count, response_metadata.total_token_count, thoughts, elapsed_time,
+            val = (convertIsDisclosed(parsed_indicator.isDisclosed), parsed_indicator.value[:2999], parsed_indicator.unit,
+                   parsed_indicator.page_number, createDocumentName(sourceDoc), parsed_indicator.section[:2999],
+                   response_metadata.cached_content_token_count, response_metadata.total_token_count, thoughts[:4999], elapsed_time,
                    sourceDoc.industry, sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id)
             mycursor.execute(sql, val)
 

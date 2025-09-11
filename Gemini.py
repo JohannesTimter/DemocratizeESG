@@ -1,4 +1,6 @@
 import asyncio
+import io
+import json
 import time
 
 import httpx
@@ -11,8 +13,8 @@ from pydantic import BaseModel
 import CompanyReportFile
 from MySQL_client import insertIntoMetricExtraction, selectDisclosedIndicatorIDs
 
-max_retries = 3
-initial_delay_seconds = 2
+max_retries = 8
+initial_delay_seconds = 5
 
 class IndicatorExtraction(BaseModel):
   isDisclosed: int = 1
@@ -26,10 +28,19 @@ client = genai.Client()
 
 async def promptDocumentsAsync(documents: list[CompanyReportFile]):
   for doc in documents:
-    prompts = generatePromptlist(doc)
+    print(f"Now prompting document: {doc.company_name} {doc.period} {doc.topic} {doc.mimetype} {doc.counter} ")
+
+    doc_io = io.BytesIO(doc.file_value)
+    uploaded_doc = await client.aio.files.upload(
+      file=doc_io,
+      config=dict(
+        mime_type=doc.mimetype)
+    )
+
+    prompts = generatePromptsDictionary(doc)
     tasks = []
     for indicatorID in prompts:
-      task = getGeminiResponseAsync(doc, prompts, indicatorID)
+      task = getGeminiResponseAsync(uploaded_doc, prompts, indicatorID)
       tasks.append(task)
 
     results = await asyncio.gather(*tasks)
@@ -43,15 +54,16 @@ async def promptDocumentsAsync(documents: list[CompanyReportFile]):
         if not part.text:
           continue
         if part.thought:
-          thoughts = part.text
+          thoughts = part.text  #Truncate thoughts so it fits into the Varchar(5000) column in MySQL
       response_metadata = response.usage_metadata
       parsed_indicator: IndicatorExtraction = response.parsed
       parsed_indicator.indicator_id = indicatorID
 
       insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
 
+    client.files.delete(name=uploaded_doc.name)
 
-async def getGeminiResponseAsync(doc, prompts, indicatorID):
+async def getGeminiResponseAsync(uploaded_doc, prompts, indicatorID):
   response = None
   start = 0
   for attempt in range(max_retries):
@@ -60,10 +72,7 @@ async def getGeminiResponseAsync(doc, prompts, indicatorID):
       response = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
         contents=[
-          types.Part.from_bytes(
-            data=doc.file_value,
-            mime_type=doc.mimetype,
-          ),
+          uploaded_doc,
           prompts[indicatorID]],
         config=GenerateContentConfig(
           thinking_config=types.ThinkingConfig(
@@ -83,20 +92,23 @@ async def getGeminiResponseAsync(doc, prompts, indicatorID):
       else:
         print("Max retries reached. The API call has failed.")
     except genai.errors.ClientError as e:
-      print(f"Caught a (Resource error?): {e.code}. Sleeping for a minute")
-      if attempt < max_retries - 1:
-        await asyncio.sleep(60)
+      if e.code == 429:
+        if attempt < max_retries - 1:
+          await asyncio.sleep(60)
+      else:
+        print(e)
+
 
   end = time.time()
   elapsed_time = int(end - start)
-  print(response.text.replace('\n', ' ').replace('\r', ''))
-  print(f"Elapsed time: {elapsed_time} s")
+  #print(response.text.replace('\n', ' ').replace('\r', ''))
+  print(f"IndicatorID: {indicatorID}, elapsed time: {elapsed_time} s")
   return response, elapsed_time, indicatorID
 
 def promptDocuments(documents: list[CompanyReportFile]):
 
   for doc in documents:
-    prompts = generatePromptlist(doc)
+    prompts = generatePromptsDictionary(doc)
 
     for indicatorID in prompts:
       print(f"Name: {doc.company_name}, Period: {doc.period}, Type: {doc.mimetype}, Topic: {doc.topic}")
@@ -155,21 +167,21 @@ def getGeminiResponse(doc, prompt):
         print("Max retries reached. The API call has failed.")
   return response
 
-def generatePromptlist(doc: CompanyReportFile):
+def generatePromptsDictionary(doc: CompanyReportFile):
   prompts = {}
 
   indicators = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:I")
-  alreadyDisclosedIndicators = selectDisclosedIndicatorIDs(doc)
+  #alreadyDisclosedIndicators = selectDisclosedIndicatorIDs(doc)
 
   if doc.topic == CompanyReportFile.Topic.FINANCIAL:
     finance_indicators = ["lowCarbon_revenue", "environmental_ex", "revenue", "profit", "employees"]
     indicators = indicators.loc[indicators['IndicatorID'].isin(finance_indicators)]
 
   for index, row in indicators.iterrows():
-    if row['IndicatorID'] not in alreadyDisclosedIndicators:
+    #if row['IndicatorID'] not in alreadyDisclosedIndicators:
       prompts[row['IndicatorID']] = promptTemplate(row)
 
-  print(f"Following indicators are already disclosed and will not be prompted again: {",".join(alreadyDisclosedIndicators)}")
+  #print(f"Following indicators are already disclosed and will not be prompted again: {",".join(alreadyDisclosedIndicators)}")
 
   return prompts
 
@@ -196,7 +208,7 @@ def promptTemplate(indicatorInfos):
 
 
 if __name__ == "__main__":
-  prompts = generatePromptlist()
+  prompts = generatePromptsDictionary()
   for prompt in prompts:
     print(prompt)
     print("----")

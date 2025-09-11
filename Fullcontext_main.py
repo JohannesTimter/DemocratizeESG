@@ -1,5 +1,6 @@
 import asyncio
 import io
+import time
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -31,13 +32,14 @@ async def main():
       print(f"{row['Company']} already collected, skipping")
       continue
 
+    start = time.time()
     companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
-
     for companyYearReport in companyYearReports:
       print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}, Counter: {companyYearReport.counter}")
-
     #promptDocuments(companyYearReports)
     await promptDocumentsAsync(companyYearReports)
+    end = time.time()
+    print(f"Time elapsed for {row['Company']}: {int(end-start)}s")
 
 def retrieveCompanyYearReports(industry, companyName, year):
   creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -62,6 +64,7 @@ def retrieveCompanyYearReports(industry, companyName, year):
 
 def handleCompanyFiles(company_report_files, industry, company, service, year):
   companyReports: list[CompanyReportFile] = []
+  acceptable_mime_types = ['application/pdf']
 
   esgCounter, finCounter, annCounter = 0, 0, 0
   relevantCounter = None
@@ -80,14 +83,20 @@ def handleCompanyFiles(company_report_files, industry, company, service, year):
       specific_company_report_files = getFilesInFolder(service, company_report_file['id'])
       for specific_company_report_file in specific_company_report_files:
         if year in specific_company_report_file['name']:
-          relevantCounter += 1
-          companyReports.append(CompanyReportFile(industry, company, year, topic, specific_company_report_file['mimeType'],
-                                                  download_file(service, specific_company_report_file['id']), specific_company_report_file['size'], relevantCounter))
+          if specific_company_report_file['mimeType'] in acceptable_mime_types:
+            relevantCounter += 1
+            companyReports.append(CompanyReportFile(industry, company, year, topic, specific_company_report_file['mimeType'],
+                                                    download_file(service, specific_company_report_file), specific_company_report_file['size'], relevantCounter))
+          else:
+            print(f"Unexpected mime type {specific_company_report_file['mimeType']} for company {company} in year {year}")
     elif year in company_report_file['name']:
-      annCounter += 1
-      companyReports.append(
-        CompanyReportFile(industry, company, year, Topic.ANNUAL_REPORT, company_report_file['mimeType'],
-                          download_file(service, company_report_file['id']), company_report_file['size'], annCounter))
+      if company_report_file['mimeType'] in acceptable_mime_types:
+        annCounter += 1
+        companyReports.append(
+          CompanyReportFile(industry, company, year, Topic.ANNUAL_REPORT, company_report_file['mimeType'],
+                            download_file(service, company_report_file), company_report_file['size'], annCounter))
+      else:
+        print(f"Unexpected mime type {company_report_file['mimeType']} for company {company} in year {year}")
 
   return companyReports
 
@@ -107,21 +116,33 @@ def getFilesInFolder(service, folder_id):
   sorted_items = sorted(items, key=lambda item: item['name'].lower())
   return sorted_items
 
-def download_file(service, file_id):
+def download_file(service, report_file):
+  file_id = report_file['id']
+  mimeType = report_file['mimeType']
+
+  request = None
   try:
-    request = service.files().get_media(fileId=file_id)
+    if mimeType == 'application/pdf':
+      request = service.files().get_media(fileId=file_id)
+    elif mimeType == 'application/vnd.google-apps.spreadsheet':
+      request = service.files().export_media(
+          fileId=file_id, mimeType="application/pdf"
+      )
+    else:
+      raise NotImplementedError(f"Unexpected mime type: {mimeType}, id: {file_id}")
     file = io.BytesIO()
     downloader = MediaIoBaseDownload(file, request)
     done = False
     while done is False:
       status, done = downloader.next_chunk()
-      print(f"Download {int(status.progress() * 100)}.")
+      print(f"Download {int(status.progress() * 100)} of {report_file['name']} {mimeType}")
 
   except HttpError as error:
     print(f"An error occurred: {error}")
     file = None
 
   return file.getvalue()
+
 
 if __name__ == "__main__":
   asyncio.run(main())
