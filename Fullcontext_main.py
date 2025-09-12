@@ -9,7 +9,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from CompanyReportFile import Topic
 
 from CompanyReportFile import CompanyReportFile
-from Gemini import promptDocuments, promptDocumentsAsync
+from Gemini import promptDocuments, promptDocumentsAsync, uploadDoc, createBatchRequestJson
 from GroundTruth import loadSheet
 
 # If modifying these scopes, delete the file token.json.
@@ -25,7 +25,24 @@ topic_order = {
 }
 
 async def main():
+  #await fullcontext_async()
 
+  all_companyYearReports = get_all_company_year_reports()
+  createBatchRequestJson(all_companyYearReports)
+
+
+def get_all_company_year_reports():
+  all_companyYearReports = []
+
+  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, groundtruth_sheet_range)
+  for index, row in groundtruth_reportsList.iterrows():
+    print(f"Now collecting documents: {row['Company']} {row['Year']}")
+    companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
+    all_companyYearReports.extend(companyYearReports)
+
+  return all_companyYearReports
+
+async def fullcontext_async():
   groundtruth_reportsList = loadSheet(groundtruth_sheet_id, groundtruth_sheet_range)
   for index, row in groundtruth_reportsList.iterrows():
     if row['Collected'] == "TRUE":
@@ -35,11 +52,12 @@ async def main():
     start = time.time()
     companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
     for companyYearReport in companyYearReports:
-      print(f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}, Counter: {companyYearReport.counter}")
-    #promptDocuments(companyYearReports)
+      print(
+        f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}, Counter: {companyYearReport.counter}")
+    # promptDocuments(companyYearReports)
     await promptDocumentsAsync(companyYearReports)
     end = time.time()
-    print(f"Time elapsed for {row['Company']}: {int(end-start)}s")
+    print(f"Time elapsed for {row['Company']}: {int(end - start)}s")
 
 def retrieveCompanyYearReports(industry, companyName, year):
   creds = Credentials.from_authorized_user_file("token.json", SCOPES)

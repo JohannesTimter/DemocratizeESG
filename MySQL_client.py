@@ -14,7 +14,7 @@ mydb = mysql.connector.connect(
 mycursor = mydb.cursor()
 
 def insertIntoGroundtruth(basic_info, groundtruthreport_row):
-    sql = ("INSERT INTO groundtruth2 (industry, company_name, year, indicator_id, not_disclosed, value, "
+    sql = ("INSERT INTO groundtruth3 (industry, company_name, year, indicator_id, not_disclosed, value, "
            "unit, searchword, pagenumber, source_title, source_link, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
     val = (basic_info['Industry'], basic_info['Company'], basic_info['Year'], groundtruthreport_row['IndicatorID'], convertNotDisclosed(groundtruthreport_row['notDisclosed']),
             groundtruthreport_row['Value'], groundtruthreport_row['Unit'], groundtruthreport_row['Searchword'], groundtruthreport_row['Pagenumber'],
