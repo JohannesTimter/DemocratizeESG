@@ -3,18 +3,16 @@ import io
 import json
 import time
 
-import aiohttp
 import httpx
 from google import genai
 from google.genai import types
 from google.genai.types import GenerateContentConfig
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from GroundTruth import loadSheet
 from pydantic import BaseModel
 
 import CompanyReportFile
-from MySQL_client import insertIntoMetricExtraction, selectDisclosedIndicatorIDs
+from MySQL_client import insertIntoMetricExtraction
 
 max_retries = 8
 initial_delay_seconds = 5
@@ -104,7 +102,6 @@ async def getGeminiResponseAsync(uploaded_doc, prompts, indicatorID):
 
   end = time.time()
   elapsed_time = int(end - start)
-  #print(response.text.replace('\n', ' ').replace('\r', ''))
   print(f"IndicatorID: {indicatorID}, elapsed time: {elapsed_time} s")
   return response, elapsed_time, indicatorID
 
@@ -116,26 +113,27 @@ def createBatchRequestJson(all_companyYearReports):
 
     for indicatorID in prompts:
       request = {
-        "key": f"{doc.company_name}-{doc.period}-{doc.topic}-{doc.counter}-{indicatorID}",
+        "key": f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}-{indicatorID}",
         "request": {
           "contents": [{
             "parts": [
               {"text": prompts[indicatorID]},
               {"file_data": {"file_uri": uploaded_doc.uri, "mime_type": uploaded_doc.mime_type}}
             ]
-          }]
-        },
-        "generation_config": {
-          "thinking_config": {
-            "include_thoughts": True,
-          },
-          "response_mime_type": "application/json",
-          "response_schema": IndicatorExtraction.model_json_schema()
+          }],
+          "generationConfig": {
+            "thinking_config": {
+              "include_thoughts": True,
+              "thinking_budget": -1
+            },
+            "response_mime_type": "application/json",
+            "response_json_schema": IndicatorExtraction.model_json_schema()
+          }
         }
       }
       requests_data.append(request)
 
-  json_file_path = 'batch_requests_with_pdfs.json'
+  json_file_path = 'batchProcessing_file_promptTemplate3.json'
   print(f"\nCreating JSONL file: {json_file_path}")
   with open(json_file_path, 'w') as f:
       for req in requests_data:
@@ -255,41 +253,37 @@ def promptTemplate(indicatorInfos):
   #print(prompt)
 
 def promptTemplate2(indicatorInfos, doc):
-  prompt = f""""Extract the following metric from the provided document:
+  prompt = f""""You are an expert environmental data analyst. Your task is to extract the following metric from the attached report document:
       -{indicatorInfos['IndicatorName']} of the reporting company {doc.company_name} for the year {doc.period}.
       
       Metric-specific instructions:
       {indicatorInfos['IndicatorDescription']}
       {indicatorInfos['PromptEngineering']}
       
-      Suggested searchwords (you should still come up with your own searchwords):
+      Suggested search words (you should still come up with your own searchwords):
       {indicatorInfos['Searchwords']}
       
+      Response Requirements:
+      -You are only allowed to return a single json object in your response, you can never return multiple results.      
+      Example Output:
+      {{            
+            "is_disclosed": 1, //If the Information we are looking for is not disclosed in the document, set the is_disclosed field to 0.
+            "indicator_id": "{indicatorInfos['IndicatorID']}":,
+            "value": "{indicatorInfos['exampleValue']}",
+            "unit": "{indicatorInfos['exampleUnit']}",
+            "page_number": "92", //page number, where the respective information was found.
+            "section" : "{indicatorInfos['exampleSourceSection']}" //text section where you found the information.
+      }}
+
       General instructions:
       -Use the provided document as a source of metrics
       -Only consider english text
-      -You are not an expert at interpreting figures. You are much better at reading tables and text. Knowing this, you prefer reading information from tables and text over using figures, if possible.
+      -You are much better at reading tables and text than at interpreting figures. Knowing this, you prefer reading information from tables and text over using figures, if possible.
       -Hint: Look for tables in the Appendix and Annexes section of the reports, which can often be found in the last chapter of the documents. Look for tables in sections such as GRI indicatos, SASB Indicators, TCFD Indicators. These tables contain reliable and easy to digest information.
       -Prefer values in metric tons over values the american short tons
       -Prefer values in liters over values in gallons
       -If there are values for the reporting company itself and for the reporting companies group available, use the values of the companies group.
-
-      Response Requirements:
-      -You are only allowed to return a single json object in your response, you can never return multiple results.
-      -Regarding the "is_disclosed" key: If the Information we are looking for is not disclosed in the document, set the is_disclosed field to 0.
-      -Regarding the "page_number" key: Provide the page number, where the respective information was found. 
-      -Regarding the "section" key: Provide the text section where you found the information.
-      -The required output format is JSON.
-      
-      Example Output:
-      {{            
-            "is_disclosed": 1, 
-            "indicator_id": "{indicatorInfos['IndicatorID']}":,
-            "value": "{indicatorInfos['exampleValue']}",
-            "unit": "{indicatorInfos['exampleUnit']}",
-            "page_number": "92",
-            "section" : "{indicatorInfos['exampleSourceSection']}"
-      }}"""
+      """
 
   return prompt
 
