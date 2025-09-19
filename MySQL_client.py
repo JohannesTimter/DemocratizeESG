@@ -55,7 +55,6 @@ def selectDisclosedIndicatorIDs(doc: CompanyReportFile):
 
     return indicator_ids
 
-
 def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, response_metadata, thoughts, elapsed_time):
     try:
         sql = ("INSERT INTO extraction_attempt2 (industry, company_name, year, indicator_id, not_disclosed, value, "
@@ -85,3 +84,16 @@ def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, r
 
 
     #print(mycursor.rowcount, f"{createDocumentName(sourceDoc)} record inserted.")
+
+def insertIntoBatchMetricExtraction(responseData_dic):
+    sql = ("INSERT INTO extraction_attempt3_unconsolidated (company_name, year, indicator_id, not_disclosed, value, "
+           "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary)"
+           " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+    val = (responseData_dic['company_name'], responseData_dic['year'], responseData_dic['indicator_id'],
+           convertIsDisclosed(responseData_dic['isDisclosed']),
+           responseData_dic['value'][:2999], responseData_dic['unit'], responseData_dic['page_number'],
+           responseData_dic['source_title'], responseData_dic['section'][:2999], responseData_dic['inputTokenCount'],
+           responseData_dic['outputTokenCount'], responseData_dic['thoughts'][:4999])
+    mycursor.execute(sql, val)
+
+    mydb.commit()
