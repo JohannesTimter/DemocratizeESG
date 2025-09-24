@@ -55,7 +55,7 @@ async def promptDocumentsAsync(documents: list[CompanyReportFile]):
         if not part.text:
           continue
         if part.thought:
-          thoughts = part.text  #Truncate thoughts so it fits into the Varchar(5000) column in MySQL
+          thoughts = part.text
       response_metadata = response.usage_metadata
       parsed_indicator: IndicatorExtraction = response.parsed
       parsed_indicator.indicator_id = indicatorID
