@@ -133,7 +133,7 @@ def createBatchRequestJson(all_companyYearReports):
       }
       requests_data.append(request)
 
-  json_file_path = 'batchProcessing_file_promptTemplate3.json'
+  json_file_path = 'batch_input_output_files/batchProcessing_file_promptTemplate3.json'
   print(f"\nCreating JSONL file: {json_file_path}")
   with open(json_file_path, 'w') as f:
       for req in requests_data:
@@ -212,7 +212,7 @@ def getGeminiResponse(doc, prompt):
         print("Max retries reached. The API call has failed.")
   return response
 
-def generatePromptsDictionary(doc: CompanyReportFile):
+def generatePromptsDictionary(doc: CompanyReportFile, isCoA=False, communicationUnits=None):
   prompts = {}
 
   indicators = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:J")
@@ -225,7 +225,10 @@ def generatePromptsDictionary(doc: CompanyReportFile):
   for index, row in indicators.iterrows():
     #if row['IndicatorID'] not in alreadyDisclosedIndicators:
       #prompts[row['IndicatorID']] = promptTemplate(row)
-      prompts[row['IndicatorID']] = promptTemplate2(row, doc)
+      if isCoA:
+        prompts[row['IndicatorID']] = promptTemplateCoA(row, doc)
+      else:
+        prompts[row['IndicatorID']] = promptTemplate2(row, doc)
 
   #print(f"Following indicators are already disclosed and will not be prompted again: {",".join(alreadyDisclosedIndicators)}")
 
@@ -254,13 +257,13 @@ def promptTemplate(indicatorInfos):
 
 def promptTemplate2(indicatorInfos, doc):
   prompt = f""""You are an expert environmental data analyst. Your task is to extract the following metric from the attached report document:
-      -{indicatorInfos['IndicatorName']} of the reporting company {doc.company_name} for the year {doc.period}.
+      {indicatorInfos['IndicatorName']} of the reporting company {doc.company_name} for the year {doc.period}.
       
       Metric-specific instructions:
       {indicatorInfos['IndicatorDescription']}
       {indicatorInfos['PromptEngineering']}
       
-      Suggested search words (you should still come up with your own searchwords):
+      Suggested search words (you should still come up with your own search terms):
       {indicatorInfos['Searchwords']}
       
       Response Requirements:
@@ -272,21 +275,20 @@ def promptTemplate2(indicatorInfos, doc):
             "value": "{indicatorInfos['exampleValue']}",
             "unit": "{indicatorInfos['exampleUnit']}",
             "page_number": "92", //page number, where the respective information was found.
-            "section" : "{indicatorInfos['exampleSourceSection']}" //text section where you found the information.
+            "section": "{indicatorInfos['exampleSourceSection']}" //text section where you found the information.
       }}
 
       General instructions:
       -Use the provided document as a source of metrics
       -Only consider english text
       -You are much better at reading tables and text than at interpreting figures. Knowing this, you prefer reading information from tables and text over using figures, if possible.
-      -Hint: Look for tables in the Appendix and Annexes section of the reports, which can often be found in the last chapter of the documents. Look for tables in sections such as GRI indicatos, SASB Indicators, TCFD Indicators. These tables contain reliable and easy to digest information.
+      -Hint: Look for tables in the Appendix and Annexes section of the reports, which can often be found in the last chapter of the documents. Look for tables in sections such as GRI indicators, SASB Indicators, TCFD Indicators. These tables contain reliable and easy to digest information.
       -Prefer values in metric tons over values the american short tons
       -Prefer values in liters over values in gallons
       -If there are values for the reporting company itself and for the reporting companies group available, use the values of the companies group.
       """
 
   return prompt
-
 
 if __name__ == "__main__":
   prompts = generatePromptsDictionary()

@@ -146,10 +146,13 @@ def generateConflictResolutionPrompt(conflictGroup, indicatorInfos):
 
     promptTemplate = \
         f""""You are an ESG expert and your task is to decide, which one of the following, 
-            conflicting solutions contains the most correct value and unit. Answer by naming the index of the most correct solution, this will be either 0, 1 or 2. 
+            conflicting solutions contains the most correct value and unit. 
+            Answer by naming the index of the most correct solution, this will be either 0, 1 or 2. 
             For example, if you think Option 2 is the best solution, simply answer: "2".
-            You have to chose exactly one solution. You can use the text section used and the thoughts to estimate, 
-            how confident the authors were in their answer. Generally, values that were explicitly stated in the source document are preferable over inferred/calculated values.
+            You must choose exactly one solution. You can use the text section used and the thoughts to estimate, 
+            how confident the authors were in their answer. Generally, values that were explicitly stated in 
+            the source document are preferable over inferred/calculated values.
+            
             
             The solutions want to measure the following metric of a reporting company: {indicatorRow['IndicatorName']}
             Some general information about the indicator: {indicatorRow['IndicatorDescription']}\n

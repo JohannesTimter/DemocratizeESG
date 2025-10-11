@@ -3,3 +3,14 @@ credentials.json
 __pycache__/
 /__pycache__
 /__pycache__
+batch_input_output_files/batchProcessing_file_promptTemplateCoA_BMW_test.json
+batch_input_output_files/CoA_part1.json
+batch_input_output_files/CoA_part2.json
+batch_input_output_files/CoA_part3.json
+batch_input_output_files/CoA_part4.json
+batch_input_output_files/CoA_part5.json
+batch_input_output_files/CoA_part6.json
+batch_input_output_files/CoA_part7.json
+batch_input_output_files/CoA_part8.json
+batch_input_output_files/batchProcessing_file_promptTemplateCoA.json
+companyYearReports.pkl

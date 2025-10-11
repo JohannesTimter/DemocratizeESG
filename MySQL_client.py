@@ -55,6 +55,18 @@ def selectDisclosedIndicatorIDs(doc: CompanyReportFile):
 
     return indicator_ids
 
+def selectAvgInputTokenCount(source_title: str):
+    sql_query = ("SELECT truncate(avg(input_token_count),0) "
+                 "FROM democratizeesg.extraction_attempt3_unconsolidated "
+                 "WHERE source_title = %s")
+    val = source_title
+    mycursor.execute(sql_query, val)
+    results = mycursor.fetchall()
+
+    avg_input_token_count = results[0][0]
+
+    return avg_input_token_count
+
 def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, response_metadata, thoughts, elapsed_time):
     try:
         sql = ("INSERT INTO extraction_attempt2 (industry, company_name, year, indicator_id, not_disclosed, value, "
