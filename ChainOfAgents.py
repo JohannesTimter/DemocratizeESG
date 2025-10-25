@@ -1,7 +1,11 @@
+import asyncio
 import json
 import math, httpx, time, pypdf, pickle, sys
 from io import BytesIO
 from pathlib import Path
+
+from _mysql_connector import MySQLInterfaceError
+from mysql.connector import IntegrityError
 from pydantic import BaseModel
 
 from CompanyReportFile import CompanyReportFile, Topic
@@ -11,10 +15,12 @@ from google.genai import types
 from google.genai.types import GenerateContentConfig
 import mysql.connector
 
+from Gemini import getGeminiResponseAsync, CommunicationUnit
 from GroundTruth import loadSheet
+from MySQL_client import createDocumentName
 
 sys.setrecursionlimit(6000) #pypdf runs into recursion problems with large pdfs
-max_context = 10000
+max_context = 20000
 max_retries = 8
 initial_delay_seconds = 5
 
@@ -27,13 +33,17 @@ mydb = mysql.connector.connect(
 mycursor = mydb.cursor()
 client = genai.Client()
 
-class CommunicationUnit(BaseModel):
-  information: str
-  page_number: str
-  section: str
+class UploadedChunk:
+    id: int
+    page_start: int
+    page_end: int
+    uploaded_doc_reference: object
 
-  def toString(self):
-      return f"information: {self.information}\npage_number: {self.page_number}\nsection: {self.section}"
+    def __init__(self, id, page_start, page_end, uploaded_doc_reference):
+        self.id = id
+        self.page_start = page_start
+        self.page_end = page_end
+        self.uploaded_doc_reference = uploaded_doc_reference
 
 def selectAvgInputTokenCount(source_title: str):
     sql_query = ("SELECT truncate(avg(input_token_count),0) "
@@ -79,7 +89,9 @@ def split_upload_pdf(pdf_as_bytes, n_parts, company_name, year):
 
         pdf_writer.write(pdf_chunk_bytes_io)
         uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
-        uploaded_docs[output_filename] = uploaded_doc
+
+        uploaded_docs[output_filename] = UploadedChunk(i + 1, start_index + 1, end_index, uploaded_doc)
+        #uploaded_docs[output_filename] = uploaded_doc
 
         print(f"Created '{output_filename}' with {end_index - start_index} pages. Uploaded with id {uploaded_doc.name}")
 
@@ -102,7 +114,8 @@ def split_upload_pdf(pdf_as_bytes, n_parts, company_name, year):
 
         final_writer.write(pdf_chunk_bytes_io)
         uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
-        uploaded_docs[output_filename] = uploaded_doc
+        uploaded_docs[output_filename] = UploadedChunk(n_parts, start_index + 1, total_pages, uploaded_doc)
+        #uploaded_docs[output_filename] = uploaded_doc
 
         print(f"Created '{output_filename}' with {total_pages - start_index} pages. Uploaded with id {uploaded_doc.name}")
 
@@ -139,16 +152,6 @@ def upload_chunk(pdf_chunk_bytes_io):
 
     return uploaded_doc
 
-def generateChainOfAgentsPrompt(indicatorsSheet, indicatorID, doc: CompanyReportFile, communicationUnits=[]):
-    if doc.topic == CompanyReportFile.Topic.FINANCIAL:
-        finance_indicators = ["lowCarbon_revenue", "environmental_ex", "revenue", "profit", "employees"]
-        indicators = indicators.loc[indicators['IndicatorID'].isin(finance_indicators)]
-
-    for index, row in indicators.iterrows():
-        prompts[row['IndicatorID']] = promptTemplateCoA(row, doc)
-
-    return prompts
-
 def promptTemplateCoA(indicatorInfos, doc):
 
     prompt = f"""You are an expert environmental data analyst. Your task is to read the attached report document, then you should extract new information about the following metric: {indicatorInfos['IndicatorName']} of the reporting company {doc.company_name} for the year {doc.period}.
@@ -162,16 +165,19 @@ def promptTemplateCoA(indicatorInfos, doc):
       {indicatorInfos['Searchwords']}
 
       #Response Requirements:
-      -You are allowed to return a list of the following json object in your response
-      -If you have found no relevant information in the attached report document, return an empty list.      
+      -If you have found relevant Information, set contains_information to 1
+      -If you have found no relevant information in the attached report document, set contains_information to 0
+      -If you find multiple, relevant information you can return multiple objects in the list      
       Example Output:
-      {{            
+      [{{
+            "contains_information": "1" //set to 0, if the document contains no relevant information            
             "information": "I found a table in the 'OTHER ESG INFORMATION', with the subsection 'OTHER ENVIRONMENTAL INFORMATION'. The table is titled 'CO2e footprint'. A part of the table is labelled as 'SCOPE 1: DIRECT GREENHOUSE GAS EMISSIONS'. In the column for the year 2024 and the row 'Total emissions' I have found a value of 672,542, the unit is tCO2e.", //The relevant information you found in the attached report document. Give context!
-            "page_number": "195", //page number (as visible on the page), where the respective information was found.
+            "page_number": "195", //page number(s) as visible on the page(s), where the respective information was found.
             "section": "OTHER ESG INFORMATION -> OTHER ENVIRONMENTAL INFORMATION -> CO2e footprint -> SCOPE 1: DIRECT GREENHOUSE GAS EMISSIONS -> Total emissions"//text section where you found the information.
-      }}
+      }}]
 
       #General instructions:
+      -Do not convert any units or values
       -Use the provided document as a source for information
       -Only consider english text
       -You are much better at reading tables and text than at interpreting figures. Knowing this, you prefer reading information from tables and text over using figures, if possible.
@@ -182,59 +188,6 @@ def promptTemplateCoA(indicatorInfos, doc):
       """
 
     return prompt
-
-def getGeminiResponse(uploaded_doc_id, prompt):
-
-    start = time.time()
-    response = sendGeminiRequest(uploaded_doc_id, prompt)
-    end = time.time()
-    elapsed_time = int(end - start)
-    print(response.text)
-    print(f"Elapsed time: {elapsed_time} s")
-    #print(response.usage_metadata)
-    #print(f"Cached Tokens: {response.usage_metadata.cached_content_token_count}, Total Token: {response.usage_metadata.total_token_count}")
-
-    thoughts = ""
-    for part in response.candidates[0].content.parts:
-        if not part.text:
-          continue
-        if part.thought:
-          thoughts = part.text
-          #print(f"Thought summary: {thoughts}")
-
-    print("---")
-    response_metadata = response.usage_metadata
-    parsed_communication_unit: CommunicationUnit = response.parsed
-
-    return parsed_communication_unit, thoughts, response_metadata
-
-def sendGeminiRequest(uploaded_doc_id, prompt):
-    response = None
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[
-                    uploaded_doc_id,
-                    prompt],
-                config=GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(
-                        include_thoughts=True
-                    ),
-                    response_mime_type="application/json",
-                    response_schema=list[CommunicationUnit]
-                )
-            )
-        except (httpx.RemoteProtocolError, genai.errors.ServerError, genai.errors.ClientError) as e:
-            print(f"Caught a remote protocol error: {e}")
-            print(f"Prompt: {prompt}")
-            if attempt < max_retries - 1:
-                delay = initial_delay_seconds * (2 ** attempt)
-                print(f"Retrying in {delay} seconds...")
-                time.sleep(delay)
-            else:
-                print("Max retries reached. The API call has failed.")
-    return response
 
 def createBatchRequestJson(company_year_report, uploaded_chunk_name, uploaded_chunk, indicator_id, prompt):
     request = {
@@ -258,7 +211,6 @@ def createBatchRequestJson(company_year_report, uploaded_chunk_name, uploaded_ch
     }
     return request
 
-
 def storeReportsLocally(companyYearReports, json_file_path):
     for report in companyYearReports:
         filename = f"batch_input_output_files/{report.company_name}_{report.period}_{report.topic}_{report.counter}.pdf"
@@ -266,60 +218,135 @@ def storeReportsLocally(companyYearReports, json_file_path):
         with open(filename, 'wb') as f:
             f.write(report.file_value)
 
+def insert_cu_into_table(doc: CompanyReportFile, communication_unit: CommunicationUnit, indicatorID, uploaded_chunk: UploadedChunk, response_metadata, thoughts, elapsed_time):
+    sql = ("INSERT INTO communicationunits_test (company_name, year, chunk_id, chunk_page_start, "
+           "chunk_page_end, indicator_id, information, pagenumber, source_title, text_section, cached_content_token_count, total_token_count, thought_summary, elapsed_time)"
+           " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+    val = (doc.company_name, doc.period, uploaded_chunk.id, uploaded_chunk.page_start, uploaded_chunk.page_end, indicatorID, communication_unit.information[:2999], communication_unit.page_number[:200],
+           createDocumentName(doc), communication_unit.section[:2999], response_metadata.cached_content_token_count,
+           response_metadata.total_token_count, thoughts[:4999], elapsed_time)
+    mycursor.execute(sql, val)
 
-def main():
-    #companyYearReports = retrieveCompanyYearReports("Automobiles", "BMW", '2024')
+    mydb.commit()
+
+def handle_chunk_results(doc: CompanyReportFile, results):
+    for result in results:
+        response = result[0]
+        elapsed_time = result[1]
+        indicatorID = result[2]
+        uploaded_chunk: UploadedChunk = result[3]
+        thoughts = ""
+
+        if response == None:
+            print(f"Results: {results}")
+
+        for part in response.candidates[0].content.parts:
+            if not part.text:
+                continue
+            if part.thought:
+                thoughts = part.text
+        response_metadata = response.usage_metadata
+        communication_units: list[CommunicationUnit] = response.parsed
+
+        for communication_unit in communication_units:
+            if communication_unit.contains_information == 1:
+                insert_cu_into_table(doc, communication_unit, indicatorID, uploaded_chunk, response_metadata, thoughts, elapsed_time)
+
+async def main():
+    # = retrieveCompanyYearReports("Automobiles", "BMW", '2024')
 
     #companyYearReports = get_all_company_year_reports()
-    companyYearReports = []
 
     with open('companyYearReports.pkl', 'rb') as f:
-        # Load the object from the file
+    #    # Load the object from the file
         companyYearReports = pickle.load(f)
 
     #with open('companyYearReports.pkl', 'wb') as file:
-    #    # 3. Use pickle.dump() to write the object to the file
-    #    pickle.dump(companyYearReports, file)
+        # 3. Use pickle.dump() to write the object to the file
+        #pickle.dump(companyYearReports, file)
 
     indicators_sheet = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:J")
     requests_data = []
-    json_file_path = 'batch_input_output_files/batchProcessing_file_promptTemplateCoA.json'
+    #json_file_path = 'batch_input_output_files/12_companies_test_CoA.json'
 
     # Read the batch request JSON object
-    with open(json_file_path, 'r') as file:
-        requests_data = [json.loads(line) for line in file]
+    #with open(json_file_path, 'r') as file:
+        #requests_data = [json.loads(line) for line in file]
 
-    alreadyDone = ["QuantasAirways", "DeltaAirlines", "UnitedAirlines", "Volkswagen", "SAIC", "Toyota", "BMW", "MercedesBenz", "Cemex", "Holcim", "Ultratech",
-                   "AirLiquide", "Dow", "Bayer", "ChinaShenhuaEnergy", "Walmart", "Nestle", "Panasonic", "BungeGlobal", "Wesfarmers", "BHP", "AnekaTambang"]
+    alreadyDone = ["GeneralMotors", "CHR_plc", "BASF", "Carrefour", "RioTinto", "Iberdrola", "NextEra", "FormosaPetrochemical", "bp", "ExxonMobil"]
 
     for companyYearReport in companyYearReports:
         if companyYearReport.company_name in alreadyDone:
             continue
         source_title = f"{companyYearReport.company_name}_{companyYearReport.period}_{companyYearReport.topic.name}_{companyYearReport.counter}"
-        avg_input_token_count = selectAvgInputTokenCount(source_title)
+        #avg_input_token_count = selectAvgInputTokenCount(source_title)
 
-        print(f"{source_title}, {avg_input_token_count}")
-        parts_required = math.ceil(avg_input_token_count / max_context)
+        uploaded_pdf = client.files.upload(
+                        file=BytesIO(companyYearReport.file_value),
+                        config=dict(mime_type="application/pdf")
+        )
+        token_count_response = client.models.count_tokens(
+            model="gemini-2.5-flash", contents=["Tell me about this file", uploaded_pdf]
+        )
+        print(f"Total tokens: {token_count_response.total_tokens}")
+
+        print(f"{source_title}, {token_count_response.total_tokens}")
+        parts_required = math.ceil( token_count_response.total_tokens / max_context)
         print(f"parts_required: {parts_required}")
+
+        uploaded_chunks_dict = {}
+
+        #with open('chunks.pkl', 'rb') as f:
+            # Load the object from the file
+            #uploaded_chunks_dict = pickle.load(f)
 
         uploaded_chunks_dict = split_upload_pdf(companyYearReport.file_value, parts_required, companyYearReport.company_name, companyYearReport.period)
 
-        #Pro Indicator: Einmal über alle docs drüber rutschen.
-        for index, indicators_row in indicators_sheet.iterrows():
-            if companyYearReport.topic == Topic.FINANCIAL:
-                if indicators_row['IndicatorID'] not in ["lowCarbon_revenue", "environmental_ex", "revenue", "profit", "employees"]:
-                    continue
+        with open('chunks.pkl', 'wb') as file:
+            # 3. Use pickle.dump() to write the object to the file
+            pickle.dump(uploaded_chunks_dict, file)
 
-            prompt = promptTemplateCoA(indicators_row, companyYearReport)
-            for uploaded_chunk_name in uploaded_chunks_dict:
-                request_data = createBatchRequestJson(companyYearReport, uploaded_chunk_name, uploaded_chunks_dict[uploaded_chunk_name], indicators_row['IndicatorID'], prompt)
-                requests_data.append(request_data)
+        for uploaded_chunk in uploaded_chunks_dict:
+            print(f"Prompting chunk: {uploaded_chunk}")
+            tasks = []
+            for index, indicators_row in indicators_sheet.iterrows():
+                if companyYearReport.topic == Topic.FINANCIAL:
+                    if indicators_row['IndicatorID'] not in ["lowCarbon_revenue", "environmental_ex", "revenue",
+                                                             "profit", "employees"]:
+                        continue
+                prompt = promptTemplateCoA(indicators_row, companyYearReport)
+                task = getGeminiResponseAsync(uploaded_chunks_dict[uploaded_chunk], prompt,indicators_row['IndicatorID'])
+                tasks.append(task)
+            results = await asyncio.gather(*tasks)
+            handle_chunk_results(companyYearReport, results)
 
-        print(f"\nCreating JSONL file: {json_file_path}")
-        with open(json_file_path, 'w') as f:
-            for req in requests_data:
-                f.write(json.dumps(req) + '\n')
+            client.files.delete(name=uploaded_chunks_dict[uploaded_chunk].uploaded_doc_reference.name)
+
+        #createRequestsDataBatchCoA(companyYearReport, indicators_sheet, requests_data, uploaded_chunks_dict)
+
+
+
+        #print(f"\nCreating JSONL file: {json_file_path}")
+        #with open(json_file_path, 'w') as f:
+        #    for req in requests_data:
+        #        f.write(json.dumps(req) + '\n')
+
+
+def createRequestsDataBatchCoA(companyYearReport, indicators_sheet, requests_data, uploaded_chunks_dict):
+    # Pro Indicator: Einmal über alle chunks drüber rutschen.
+    for index, indicators_row in indicators_sheet.iterrows():
+        if companyYearReport.topic == Topic.FINANCIAL:
+            if indicators_row['IndicatorID'] not in ["lowCarbon_revenue", "environmental_ex", "revenue", "profit",
+                                                     "employees"]:
+                continue
+
+        prompt = promptTemplateCoA(indicators_row, companyYearReport)
+        for uploaded_chunk_name in uploaded_chunks_dict:
+            request_data = createBatchRequestJson(companyYearReport, uploaded_chunk_name,
+                                                  uploaded_chunks_dict[uploaded_chunk_name],
+                                                  indicators_row['IndicatorID'], prompt)
+            requests_data.append(request_data)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

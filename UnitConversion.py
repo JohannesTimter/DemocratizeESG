@@ -23,7 +23,7 @@ client = genai.Client()
 class ConversionFactor(BaseModel):
     multiplication_factor: float
 
-def find_units_to_convert():
+def find_indicators_to_convert():
     indicators_sheet = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:T")
     units_to_convert = indicators_sheet[indicators_sheet['isUnitConversion'] == "TRUE"]
     units_to_convert = units_to_convert[['IndicatorID', 'isUnitConversion', 'targetUnit']]
@@ -51,9 +51,9 @@ def select_multiplication_factor(source_unit, target_unit):
 
 def insert_into_new_table(groundtruth_row):
     try:
-        sql = ("INSERT INTO groundtruth4_unit_converted (industry, company_name, year, indicator_id, not_disclosed, value, "
-               "unit, searchword, pagenumber, source_title, source_link, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
-        val = (groundtruth_row[1], groundtruth_row[2], groundtruth_row[3], groundtruth_row[4],
+        sql = ("INSERT INTO groundtruth4_unit_converted (id, industry, company_name, year, indicator_id, not_disclosed, value, "
+               "unit, searchword, pagenumber, source_title, source_link, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+        val = (groundtruth_row[0], groundtruth_row[1], groundtruth_row[2], groundtruth_row[3], groundtruth_row[4],
                groundtruth_row[5], groundtruth_row[6], groundtruth_row[7], groundtruth_row[8],
                groundtruth_row[9], groundtruth_row[10], groundtruth_row[11], '')
         mycursor.execute(sql, val)
@@ -128,6 +128,12 @@ def prompt_gemini_for_conversion_factor(source_unit, target_unit):
 
     return response.multiplication_factor
 
+def update_unit_value(groundtruth_row, multiplication_factor, source_unit, target_unit):
+    old_value = groundtruth_row[6]
+    groundtruth_row[6] = str(round(float(old_value) * float(multiplication_factor), 2))
+    groundtruth_row[7] = target_unit
+    print(f"{old_value} {source_unit} ---> {groundtruth_row[6]} {target_unit}")
+
 def clean_number_string(text):
     input = text
     text = str(text)
@@ -156,36 +162,29 @@ def clean_number_string(text):
 
 
 def main():
-    units_to_convert = find_units_to_convert()
+    indicators_to_convert = find_indicators_to_convert()
     groundtruth_all_rows = select_all_groundtruth_rows()
 
     for groundtruth_row in groundtruth_all_rows:
         groundtruth_row_indicator_id = groundtruth_row[4]
-        if (units_to_convert['IndicatorID'] == groundtruth_row_indicator_id).any(): #Indicator should be convertet
+        if (indicators_to_convert['IndicatorID'] == groundtruth_row_indicator_id).any(): #Indicator should be convertet
             not_disclosed = groundtruth_row[5]
             if not_disclosed == 0: #Indicator is disclosed
                 groundtruth_row = list(groundtruth_row)
                 groundtruth_row[6] = clean_number_string(groundtruth_row[6])
                 source_unit = groundtruth_row[7]
-                target_unit = units_to_convert[units_to_convert['IndicatorID'] == groundtruth_row_indicator_id]['targetUnit'].item()
+                target_unit = indicators_to_convert[indicators_to_convert['IndicatorID'] == groundtruth_row_indicator_id]['targetUnit'].item()
                 if source_unit != target_unit:
                     multiplication_factor = select_multiplication_factor(source_unit, target_unit)
 
                     if target_unit is not None and multiplication_factor is None: #We should do a conversion based on the indicator, but don't have a factor
                         multiplication_factor = prompt_gemini_for_conversion_factor(source_unit, target_unit)
                         insert_into_unit_conversion_table(source_unit, target_unit, multiplication_factor)
-                        old_value = groundtruth_row[6]
-                        groundtruth_row[6] = str(round(float(old_value) * float(multiplication_factor),2))
-                        groundtruth_row[7] = target_unit
-                        print(f"{old_value} {source_unit} ---> {groundtruth_row[6]} {target_unit}")
+                        update_unit_value(groundtruth_row, multiplication_factor, source_unit, target_unit)
                     elif multiplication_factor != 0 and multiplication_factor is not None: #conversion is possible for this source unit and we should do conversion based on the indicator
-                        old_value = groundtruth_row[6]
-                        groundtruth_row[6] = str(round(float(old_value) * float(multiplication_factor),2))
-                        groundtruth_row[7] = target_unit
-                        print(f"{old_value} {source_unit} ---> {groundtruth_row[6]} {target_unit}")
+                        update_unit_value(groundtruth_row, multiplication_factor, source_unit, target_unit)
 
         insert_into_new_table(groundtruth_row)
-
 
 
 if __name__ == "__main__":

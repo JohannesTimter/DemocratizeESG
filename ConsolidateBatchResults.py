@@ -48,7 +48,7 @@ async def resolveConflictsAsync(realConflicts):
 
 def fetchPotentialConflicts():
     sql_query = ("SELECT company_name, year, indicator_id, not_disclosed, GROUP_CONCAT(value SEPARATOR ' vs. '), group_concat(unit SEPARATOR ' vs. ') "
-                 "FROM democratizeesg.extraction_attempt3_unconsolidated "
+                 "FROM communicationunits_unconsolidated "
                  "GROUP BY company_name, year, indicator_id, not_disclosed "
                  "HAVING not_disclosed = 0 AND COUNT(*) > 1")
     mycursor.execute(sql_query)
@@ -63,7 +63,7 @@ def fetchConflictDetails(potentialConflicts):
 
     for potentialConflict in potentialConflicts:
         sql_query = (
-            "SELECT * FROM democratizeesg.extraction_attempt3_unconsolidated "
+            "SELECT * FROM communicationunits_unconsolidated "
             "WHERE company_name = %s "
             "AND year = %s "
             "AND indicator_id = %s")
@@ -82,8 +82,8 @@ def resolveSimpleConflicts(potentialConflictDetails):
         values = []
         units = []
         for potentialConflictCandidate in potentialConflictGroup:
-            values.append(potentialConflictCandidate[5])
-            units.append(potentialConflictCandidate[6])
+            values.append(potentialConflictCandidate[6])
+            units.append(potentialConflictCandidate[7])
         if all_same(values) and all_same(units):
             resolvedSimpleConflicts.append(potentialConflictGroup[0][0]) #Just use the first record from now on, discard the second one
         else:
@@ -115,14 +115,14 @@ async def resolveConflict(conflictGroup, indicatorInfos, conflictIndex):
                           }
         )
     )
-    #print(response)
+    print(response.text)
 
-    #thoughts = ""
-    #for part in response.candidates[0].content.parts:
-    #    if not part.text:
-    #        continue
-    #    if part.thought:
-    #        thoughts = part.text
+    thoughts = ""
+    for part in response.candidates[0].content.parts:
+        if not part.text:
+            continue
+        if part.thought:
+            thoughts = part.text
 
     parsed_response: ConflictResolution = response.parsed
     resolutionIndex = parsed_response['OptionIndex']
@@ -134,25 +134,26 @@ def generateConflictResolutionPrompt(conflictGroup, indicatorInfos):
     optionsString = ""
     for index, conflictCandidate in enumerate(conflictGroup):
         optionsString += f"Option {index}:\n"
-        optionsString += f"value: {conflictCandidate[5]}\n"
-        optionsString += f"unit: {conflictCandidate[6]}\n"
-        optionsString += f"text section used: {conflictCandidate[6]}\n"
-        optionsString += f"thoughts: {conflictCandidate[12]}\n"
+        optionsString += f"value: {conflictCandidate[6]}\n"
+        optionsString += f"unit: {conflictCandidate[7]}\n"
+        optionsString += f"text section used: {conflictCandidate[10]}\n"
+        optionsString += f"thoughts: {conflictCandidate[13]}\n"
         optionsString += f"-------------------\n"
 
     for index, indicatorRow in indicatorInfos.iterrows():
-        if indicatorRow['IndicatorID'] == conflictGroup[0][3]:
+        if indicatorRow['IndicatorID'] == conflictGroup[0][4]:
             break
 
     promptTemplate = \
         f""""You are an ESG expert and your task is to decide, which one of the following, 
-            conflicting solutions contains the most correct value and unit. 
+            conflicting solutions contains the most correct value and unit.
             Answer by naming the index of the most correct solution, this will be either 0, 1 or 2. 
             For example, if you think Option 2 is the best solution, simply answer: "2".
             You must choose exactly one solution. You can use the text section used and the thoughts to estimate, 
             how confident the authors were in their answer. Generally, values that were explicitly stated in 
-            the source document are preferable over inferred/calculated values.
-            
+            the source document are preferable over inferred/calculated values. Each option was generated using a different report as a source.
+            So if one option has a valid solution, and another option claims that the metric is not disclosed, you should prefer the valid solution.
+                        
             
             The solutions want to measure the following metric of a reporting company: {indicatorRow['IndicatorName']}
             Some general information about the indicator: {indicatorRow['IndicatorDescription']}\n
@@ -163,10 +164,10 @@ def generateConflictResolutionPrompt(conflictGroup, indicatorInfos):
 
 def fetchNonConflictRecords():
     sql_query = ("SELECT t1.id "
-                "FROM extraction_attempt3_unconsolidated as t1 "
+                "FROM communicationunits_unconsolidated as t1 "
                 "INNER JOIN "
                     "(SELECT company_name, year, indicator_id, not_disclosed "
-                    " FROM democratizeesg.extraction_attempt3_unconsolidated "
+                    " FROM communicationunits_unconsolidated "
                     " GROUP BY company_name, year, indicator_id, not_disclosed "
                     " HAVING  not_disclosed = 0 AND COUNT(*) = 1 "
                     ") AS t2 "
@@ -190,10 +191,10 @@ def transferRecords(resolvedConflicts, resolvedSimpleConflicts, nonConflictRecor
 
     for disclosedRecordID in disclosedRecordIDs:
         sql = (
-            "INSERT INTO extraction_attempt3_consolidated (company_name, year, indicator_id, not_disclosed, value, "
-            "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary)"
-            "SELECT company_name, year, indicator_id, not_disclosed, value, unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary "
-            "FROM extraction_attempt3_unconsolidated "
+            "INSERT INTO communicationunits_consolidated (id, industry, company_name, year, indicator_id, not_disclosed, value, "
+            "unit, pagenumber, source_title, text_section, cached_content_token_count, total_token_count, thought_summary)"
+            "SELECT id, industry, company_name, year, indicator_id, not_disclosed, value, unit, pagenumber, source_title, text_section, cached_content_token_count, total_token_count, thought_summary "
+            "FROM communicationunits_unconsolidated "
             "WHERE id = %s")
         val = [disclosedRecordID]
         mycursor.execute(sql, val)
@@ -204,7 +205,7 @@ def insertUndisclosedRecords():
     undisclosedDuplicatesCounter = 0
 
     sql_query = ("SELECT * "
-                "FROM democratizeesg.extraction_attempt3_unconsolidated "
+                "FROM communicationunits_unconsolidated "
                 "WHERE not_disclosed = 1")
 
     mycursor.execute(sql_query)
@@ -212,12 +213,12 @@ def insertUndisclosedRecords():
 
     for undisclosedRecord in undisclosedRecords:
         sql = (
-            "INSERT INTO extraction_attempt3_consolidated (company_name, year, indicator_id, not_disclosed, value, "
-            "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
-        val = (undisclosedRecord[1], undisclosedRecord[2],
-               undisclosedRecord[3], undisclosedRecord[4], None, None, undisclosedRecord[7],
-               undisclosedRecord[8], undisclosedRecord[9], undisclosedRecord[10], undisclosedRecord[11], undisclosedRecord[12])
+            "INSERT INTO communicationunits_consolidated (id, industry, company_name, year, indicator_id, not_disclosed, value, "
+            "unit, pagenumber, source_title, text_section, cached_content_token_count, total_token_count, thought_summary)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+        val = (undisclosedRecord[0], undisclosedRecord[1], undisclosedRecord[2],
+               undisclosedRecord[3], undisclosedRecord[4], undisclosedRecord[5], None, None, undisclosedRecord[8],
+               undisclosedRecord[9], undisclosedRecord[10], undisclosedRecord[11], undisclosedRecord[12], undisclosedRecord[13])
         try:
             mycursor.execute(sql, val)
             mydb.commit()

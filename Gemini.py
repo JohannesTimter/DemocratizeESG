@@ -8,13 +8,14 @@ from google import genai
 from google.genai import types
 from google.genai.types import GenerateContentConfig
 
+#from ChainOfAgents import promptTemplateCoA
 from GroundTruth import loadSheet
 from pydantic import BaseModel
 
 import CompanyReportFile
-from MySQL_client import insertIntoMetricExtraction
+from MySQL_client import insertIntoMetricExtraction, selectDisclosedIndicatorIDs, select_communication_units
 
-max_retries = 8
+max_retries = 5
 initial_delay_seconds = 5
 
 class IndicatorExtraction(BaseModel):
@@ -22,6 +23,12 @@ class IndicatorExtraction(BaseModel):
   indicator_id: str
   value: str
   unit: str
+  page_number: str
+  section: str
+
+class CommunicationUnit(BaseModel):
+  contains_information: int
+  information: str
   page_number: str
   section: str
 
@@ -41,7 +48,7 @@ async def promptDocumentsAsync(documents: list[CompanyReportFile]):
     prompts = generatePromptsDictionary(doc)
     tasks = []
     for indicatorID in prompts:
-      task = getGeminiResponseAsync(uploaded_doc, prompts, indicatorID)
+      task = getGeminiResponseAsync(uploaded_doc, prompts[indicatorID], indicatorID)
       tasks.append(task)
 
     results = await asyncio.gather(*tasks)
@@ -64,27 +71,29 @@ async def promptDocumentsAsync(documents: list[CompanyReportFile]):
 
     client.files.delete(name=uploaded_doc.name)
 
-async def getGeminiResponseAsync(uploaded_doc, prompts, indicatorID):
+async def getGeminiResponseAsync(uploaded_chunk, prompt, indicatorID):
   response = None
   start = 0
   for attempt in range(max_retries):
     start = time.time()
     try:
-      response = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-          uploaded_doc,
-          prompts[indicatorID]],
-        config=GenerateContentConfig(
-          thinking_config=types.ThinkingConfig(
-            include_thoughts=True
-          ),
-          response_mime_type="application/json",
-          response_schema=IndicatorExtraction
+      async with asyncio.timeout(180):
+        response = await client.aio.models.generate_content(
+          model="gemini-2.5-flash",
+          contents=[
+            uploaded_chunk,
+            prompt],
+          config=GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+              include_thoughts=True
+            ),
+            response_mime_type="application/json",
+            response_schema=IndicatorExtraction
+          )
         )
-      )
 
-    except (httpx.RemoteProtocolError, genai.errors.ServerError) as e:
+        #print(f"Parsed response: {response.parsed}")
+    except (httpx.RemoteProtocolError, genai.errors.ServerError, asyncio.TimeoutError) as e:
       print(f"Caught an error: {e}")
       if attempt < max_retries - 1:
         delay = initial_delay_seconds * (2 ** attempt)
@@ -99,11 +108,10 @@ async def getGeminiResponseAsync(uploaded_doc, prompts, indicatorID):
       else:
         print(e)
 
-
   end = time.time()
   elapsed_time = int(end - start)
   print(f"IndicatorID: {indicatorID}, elapsed time: {elapsed_time} s")
-  return response, elapsed_time, indicatorID
+  return response, elapsed_time, indicatorID, uploaded_chunk
 
 def createBatchRequestJson(all_companyYearReports):
   requests_data = []
@@ -133,11 +141,11 @@ def createBatchRequestJson(all_companyYearReports):
       }
       requests_data.append(request)
 
-  json_file_path = 'batch_input_output_files/batchProcessing_file_promptTemplate3.json'
-  print(f"\nCreating JSONL file: {json_file_path}")
-  with open(json_file_path, 'w') as f:
-      for req in requests_data:
-          f.write(json.dumps(req) + '\n')
+    json_file_path = 'batch_input_output_files/big_dataset_1.json'
+    print(f"Writing JSONL file: {json_file_path}")
+    with open(json_file_path, 'w') as f:
+        for req in requests_data:
+            f.write(json.dumps(req) + '\n')
 
 def uploadDoc(doc: CompanyReportFile):
     doc_io = io.BytesIO(doc.file_value)
@@ -212,23 +220,104 @@ def getGeminiResponse(doc, prompt):
         print("Max retries reached. The API call has failed.")
   return response
 
-def generatePromptsDictionary(doc: CompanyReportFile, isCoA=False, communicationUnits=None):
+def get_communication_units(indicator_id, company_name, period):
+  communication_units = select_communication_units(indicator_id, company_name, period)
+
+  for communication_unit in communication_units:
+    communication_unit = list(communication_unit)
+    page_number = communication_unit[8]
+    page_number_start = communication_unit[4]
+
+    page_numbers_formatted = []
+    page_number = page_number.replace("-", ",")
+    page_numbers = page_number.split(',')
+    for page_number in page_numbers:
+      page_number = int(page_number)
+      if page_number < page_number_start:
+        page_number += page_number_start
+      page_numbers_formatted.append(str(page_number))
+
+    communication_unit[8] = ",".join(page_numbers)
+
+  return communication_units
+
+def build_c_u_string(communication_units):
+  string = "Previous agents have already found the following relevant parts in the document:\n"
+
+  for communication_unit in communication_units:
+    string += "--------\n"
+    string += f"Information: {communication_unit[7]}\n"
+    string += f"Page number: {communication_unit[8]}\n"
+    string += f"-------\n"
+
+  return string
+
+def promptTemplateCoA(indicatorInfos, doc):
+
+  communication_units = get_communication_units(indicatorInfos['IndicatorID'], doc.company_name, doc.period)
+  communication_units_string = build_c_u_string(communication_units)
+
+  prompt = f"""You are an expert environmental data analyst. Your task is to extract information about the following metric from the attached report document:
+      {indicatorInfos['IndicatorName']} of the reporting company {doc.company_name} for the year {doc.period}.
+
+      Metric-specific instructions:
+      {indicatorInfos['IndicatorDescription']}
+      {indicatorInfos['PromptEngineering']}
+
+      Suggested search words (you should still come up with your own search terms):
+      {indicatorInfos['Searchwords']}
+
+      {communication_units_string}
+
+      Response Requirements:
+      -You are only allowed to return a single json object in your response, you can never return multiple results.
+      -Simple return the value and the unit as you find them. Do NOT perform unit conversion.     
+      Example Output:
+      {{            
+            "is_disclosed": 1, //If the Information we are looking for is not disclosed in the document, set the is_disclosed field to 0.
+            "indicator_id": "{indicatorInfos['IndicatorID']}":,
+            "value": "{indicatorInfos['exampleValue']}", //
+            "unit": "{indicatorInfos['exampleUnit']}", //Original unit, as stated in the source
+            "page_number": "92", //page number, where the respective information was found.
+            "section": "{indicatorInfos['exampleSourceSection']}" //text section where you found the information.
+      }}
+
+      General instructions:
+      -Use the provided document as a source of metrics
+      -Only consider english text
+      -You are much better at reading tables and text than at interpreting figures. Knowing this, you prefer reading information from tables and text over using figures, if possible.
+      -Hint: Look for tables in the Appendix and Annexes section of the reports, which can often be found in the last chapter of the documents. Look for tables in sections such as GRI indicators, SASB Indicators, TCFD Indicators. These tables contain reliable and easy to digest information.
+      -Prefer values in metric tons over values the american short tons
+      -Prefer values in liters over values in gallons
+      -If there are values for the reporting company itself and for the reporting companies group available, use the values of the companies group.
+      """
+
+  return prompt
+
+
+
+def generatePromptsDictionary(doc: CompanyReportFile):
   prompts = {}
 
   indicators = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:J")
-  #alreadyDisclosedIndicators = selectDisclosedIndicatorIDs(doc)
+
+  alreadyDisclosedIndicators = selectDisclosedIndicatorIDs(doc)
 
   if doc.topic == CompanyReportFile.Topic.FINANCIAL:
     finance_indicators = ["lowCarbon_revenue", "environmental_ex", "revenue", "profit", "employees"]
     indicators = indicators.loc[indicators['IndicatorID'].isin(finance_indicators)]
 
   for index, row in indicators.iterrows():
-    #if row['IndicatorID'] not in alreadyDisclosedIndicators:
-      #prompts[row['IndicatorID']] = promptTemplate(row)
-      if isCoA:
-        prompts[row['IndicatorID']] = promptTemplateCoA(row, doc)
-      else:
-        prompts[row['IndicatorID']] = promptTemplate2(row, doc)
+    #prompts[row['IndicatorID']] = promptTemplate(row)
+    #prompts[row['IndicatorID']] = promptTemplateCoA(row, doc)
+    prompts[row['IndicatorID']] = promptTemplate2(row, doc)
+
+  industry_specific_indicators = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustrySpecificIndicators!A1:J")
+  industry_specific_indicators = industry_specific_indicators.loc[industry_specific_indicators['Industry'] ==  doc.industry]
+  for index, row in industry_specific_indicators.iterrows():
+    #prompts[row['IndicatorID']] = promptTemplate(row)
+    #prompts[row['IndicatorID']] = promptTemplateCoA(row, doc)
+    prompts[row['IndicatorID']] = promptTemplate2(row, doc)
 
   #print(f"Following indicators are already disclosed and will not be prompted again: {",".join(alreadyDisclosedIndicators)}")
 
@@ -267,13 +356,14 @@ def promptTemplate2(indicatorInfos, doc):
       {indicatorInfos['Searchwords']}
       
       Response Requirements:
-      -You are only allowed to return a single json object in your response, you can never return multiple results.      
+      -You are only allowed to return a single json object in your response, you can never return multiple results.
+      -Try to return the value in the unit as you find them. No need to perform unit conversion.     
       Example Output:
       {{            
             "is_disclosed": 1, //If the Information we are looking for is not disclosed in the document, set the is_disclosed field to 0.
-            "indicator_id": "{indicatorInfos['IndicatorID']}":,
+            "indicator_id": "{indicatorInfos['IndicatorID']}",
             "value": "{indicatorInfos['exampleValue']}",
-            "unit": "{indicatorInfos['exampleUnit']}",
+            "unit": "{indicatorInfos['exampleUnit']}", //Original unit, as stated in the source
             "page_number": "92", //page number, where the respective information was found.
             "section": "{indicatorInfos['exampleSourceSection']}" //text section where you found the information.
       }}

@@ -44,7 +44,7 @@ def createDocumentName(doc: CompanyReportFile) -> str:
     return name
 
 def selectDisclosedIndicatorIDs(doc: CompanyReportFile):
-    sql_query = "SELECT indicator_id FROM extraction_attempt2 WHERE company_name = %s AND year = %s AND not_disclosed = 0"
+    sql_query = "SELECT indicator_id FROM extraction_attempt2_test WHERE company_name = %s AND year = %s AND not_disclosed = 0"
     val = doc.company_name, doc.period,
     mycursor.execute(sql_query, val)
     results = mycursor.fetchall()
@@ -69,11 +69,11 @@ def selectAvgInputTokenCount(source_title: str):
 
 def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, response_metadata, thoughts, elapsed_time):
     try:
-        sql = ("INSERT INTO extraction_attempt2 (industry, company_name, year, indicator_id, not_disclosed, value, "
+        sql = ("INSERT INTO extraction_attempt3_test_unconsolidated (company_name, year, indicator_id, not_disclosed, value, "
                "unit, pagenumber, source_title, text_section, cached_content_token_count, total_token_count, thought_summary, elapsed_time)"
-               " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
-        val = (sourceDoc.industry, sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id, convertIsDisclosed(parsed_indicator.isDisclosed),
-                parsed_indicator.value[:2999], parsed_indicator.unit, parsed_indicator.page_number,
+               " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+        val = (sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id, convertIsDisclosed(parsed_indicator.isDisclosed),
+                parsed_indicator.value[:2999], parsed_indicator.unit[:254], parsed_indicator.page_number[:200],
                 createDocumentName(sourceDoc), parsed_indicator.section[:2999], response_metadata.cached_content_token_count,
                 response_metadata.total_token_count, thoughts[:4999], elapsed_time)
         mycursor.execute(sql, val)
@@ -83,13 +83,13 @@ def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, r
         if parsed_indicator.isDisclosed == 1:
             print(f"Updating {parsed_indicator.indicator_id} ")
 
-            sql = ("UPDATE extraction_attempt2 "
+            sql = ("UPDATE extraction_attempt3_test_unconsolidated "
                    "SET not_disclosed = %s, value = %s, unit = %s, pagenumber = %s, source_title = %s, text_section = %s, cached_content_token_count = %s, total_token_count = %s, thought_summary = %s, elapsed_time = %s "
-                   "WHERE industry = %s AND company_name = %s AND year = %s AND indicator_id = %s")
+                   "WHERE company_name = %s AND year = %s AND indicator_id = %s")
             val = (convertIsDisclosed(parsed_indicator.isDisclosed), parsed_indicator.value[:2999], parsed_indicator.unit,
                    parsed_indicator.page_number, createDocumentName(sourceDoc), parsed_indicator.section[:2999],
                    response_metadata.cached_content_token_count, response_metadata.total_token_count, thoughts[:4999], elapsed_time,
-                   sourceDoc.industry, sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id)
+                   sourceDoc.company_name, sourceDoc.period, parsed_indicator.indicator_id)
             mycursor.execute(sql, val)
 
             mydb.commit()
@@ -109,3 +109,11 @@ def insertIntoBatchMetricExtraction(responseData_dic):
     mycursor.execute(sql, val)
 
     mydb.commit()
+
+def select_communication_units(indicator_id, company_name, period):
+    sql_query = "SELECT * FROM communicationunits_test WHERE company_name = %s AND year = %s AND indicator_id = %s"
+    val = company_name, period, indicator_id
+    mycursor.execute(sql_query, val)
+    results = mycursor.fetchall()
+
+    return list(results)

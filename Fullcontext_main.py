@@ -1,5 +1,7 @@
 import asyncio
 import io
+import pickle
+import socket
 import time
 
 from google.oauth2.credentials import Credentials
@@ -9,7 +11,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from CompanyReportFile import Topic
 
 from CompanyReportFile import CompanyReportFile
-from Gemini import promptDocuments, promptDocumentsAsync, uploadDoc, createBatchRequestJson
+from Gemini import promptDocumentsAsync, uploadDoc, createBatchRequestJson
 from GroundTruth import loadSheet
 
 # If modifying these scopes, delete the file token.json.
@@ -17,6 +19,8 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 ca100_folder = '1ysF7PHBu29_0LGV-c22iwBoPx8X_NS9N' #ClimateActive100 Drive Folder
 groundtruth_sheet_id = '18HCMbUmXcK9N2d4GziwUrHUgEHnc81ZH_4v-r-uJKcI' #Sheet with list of groundtruth sheets
 groundtruth_sheet_range = "GroundTruth!A1:F"
+test_sheet_range = "Test!A1:F"
+big_dataset_range = "BigDataset!A1:C"
 
 topic_order = {
     Topic.ESG: 0,
@@ -34,16 +38,31 @@ async def main():
 def get_all_company_year_reports():
   all_companyYearReports = []
 
-  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, groundtruth_sheet_range)
+  with open('companyYearReports.pkl', 'rb') as f:
+    #    # Load the object from the file
+    all_companyYearReports = pickle.load(f)
+
+  industries_to_collect = ["Airlines", "Automobiles", "Cement", "Chemicals", "CoalMining"]
+  years_to_collect = ["2020", "2021", "2022", "2023", "2024"]
+
+  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, big_dataset_range)
   for index, row in groundtruth_reportsList.iterrows():
-    print(f"Now collecting documents: {row['Company']} {row['Year']}")
-    companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
-    all_companyYearReports.extend(companyYearReports)
+    if row['Industry'] in industries_to_collect and row['Collected'] != "TRUE":
+      for year in years_to_collect:
+        print(f"Now collecting documents: {row['Company']} {year}")
+        companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], year)
+        print(f"Retrieved {len(companyYearReports)} documents for {row['Company']} {year}")
+        all_companyYearReports.extend(companyYearReports)
+
+      with open('companyYearReports.pkl', 'wb') as file:
+        # 3. Use pickle.dump() to write the object to the file
+        pickle.dump(all_companyYearReports, file)
+        print(f"companyYearReports.pkl aktualisiert.")
 
   return all_companyYearReports
 
 async def fullcontext_async():
-  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, groundtruth_sheet_range)
+  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, test_sheet_range)
   for index, row in groundtruth_reportsList.iterrows():
     if row['Collected'] == "TRUE":
       print(f"{row['Company']} already collected, skipping")
@@ -137,8 +156,11 @@ def getFilesInFolder(service, folder_id):
 def download_file(service, report_file):
   file_id = report_file['id']
   mimeType = report_file['mimeType']
-
+  MAX_RETRIES = 5
+  BASE_BACKOFF = 2  # Seconds
+  retries = 0
   request = None
+
   try:
     if mimeType == 'application/pdf':
       request = service.files().get_media(fileId=file_id)
@@ -153,11 +175,22 @@ def download_file(service, report_file):
     done = False
     while done is False:
       status, done = downloader.next_chunk()
-      print(f"Download {int(status.progress() * 100)} of {report_file['name']} {mimeType}")
+      retries = 0
+      #print(f"Download {int(status.progress() * 100)} of {report_file['name']} {mimeType}")
 
   except HttpError as error:
     print(f"An error occurred: {error}")
     file = None
+  except (socket.timeout, TimeoutError) as e:
+    print(f"A timeout error occurred: {e}")
+    if retries < MAX_RETRIES:
+      retries += 1
+      sleep_time = (BASE_BACKOFF ** retries)
+      print(f"Retrying in {sleep_time}s... (Attempt {retries}/{MAX_RETRIES})")
+      time.sleep(sleep_time)
+    else:
+      print(f"Download failed after {MAX_RETRIES} retries due to timeout.")
+      file = None  # Mark as failed
 
   return file.getvalue()
 
