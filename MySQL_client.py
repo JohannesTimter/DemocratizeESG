@@ -98,17 +98,33 @@ def insertIntoMetricExtraction(sourceDoc: CompanyReportFile, parsed_indicator, r
     #print(mycursor.rowcount, f"{createDocumentName(sourceDoc)} record inserted.")
 
 def insertIntoBatchMetricExtraction(responseData_dic):
-    sql = ("INSERT INTO extraction_attempt3_unconsolidated (company_name, year, indicator_id, not_disclosed, value, "
-           "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary)"
-           " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
-    val = (responseData_dic['company_name'], responseData_dic['year'], responseData_dic['indicator_id'],
-           convertIsDisclosed(responseData_dic['isDisclosed']),
-           responseData_dic['value'][:2999], responseData_dic['unit'], responseData_dic['page_number'],
-           responseData_dic['source_title'], responseData_dic['section'][:2999], responseData_dic['inputTokenCount'],
-           responseData_dic['outputTokenCount'], responseData_dic['thoughts'][:4999])
-    mycursor.execute(sql, val)
+    try:
+        sql = ("INSERT INTO big_dataset_unconsolidated (company_name, year, indicator_id, not_disclosed, value, "
+               "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary)"
+               " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+        val = (responseData_dic['company_name'], responseData_dic['year'], responseData_dic['indicator_id'],
+               convertIsDisclosed(responseData_dic['isDisclosed']),
+               responseData_dic['value'][:2999], responseData_dic['unit'][:254], responseData_dic['page_number'][:254],
+               responseData_dic['source_title'], responseData_dic['section'][:2999], responseData_dic['inputTokenCount'],
+               responseData_dic['outputTokenCount'], responseData_dic['thoughts'][:4999])
+        mycursor.execute(sql, val)
+        mydb.commit()
+    except (IntegrityError, MySQLInterfaceError) as e:
+        print(f"Updating {responseData_dic['company_name']} {responseData_dic['year']} {responseData_dic['indicator_id']} {responseData_dic['source_title']} ")
+        sql = ("UPDATE big_dataset_unconsolidated "
+               "SET company_name = %s, year = %s, indicator_id = %s, not_disclosed = %s, value = %s, unit = %s, pagenumber = %s, "
+               "source_title = %s, text_section = %s, input_token_count = %s, output_token_count = %s, thought_summary = %s "
+               "WHERE company_name = %s AND year = %s AND indicator_id = %s AND source_title = %s")
+        val = (responseData_dic['company_name'], responseData_dic['year'], responseData_dic['indicator_id'],
+               convertIsDisclosed(responseData_dic['isDisclosed']),
+               responseData_dic['value'][:2999], responseData_dic['unit'][:254], responseData_dic['page_number'][:254],
+               responseData_dic['source_title'], responseData_dic['section'][:2999], responseData_dic['inputTokenCount'],
+               responseData_dic['outputTokenCount'], responseData_dic['thoughts'][:4999],
+               responseData_dic['company_name'], responseData_dic['year'], responseData_dic['indicator_id'], responseData_dic['source_title'])
+        mycursor.execute(sql, val)
 
-    mydb.commit()
+        mydb.commit()
+
 
 def select_communication_units(indicator_id, company_name, period):
     sql_query = "SELECT * FROM communicationunits_test WHERE company_name = %s AND year = %s AND indicator_id = %s"

@@ -1,6 +1,8 @@
 
 from pydantic import BaseModel
 from mysql.connector import IntegrityError
+import pandas as pd
+from scipy.misc import dataset_methods
 
 from GroundTruth import loadSheet
 import mysql.connector
@@ -24,14 +26,20 @@ class ConversionFactor(BaseModel):
     multiplication_factor: float
 
 def find_indicators_to_convert():
-    indicators_sheet = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:T")
-    units_to_convert = indicators_sheet[indicators_sheet['isUnitConversion'] == "TRUE"]
-    units_to_convert = units_to_convert[['IndicatorID', 'isUnitConversion', 'targetUnit']]
+    industry_agnostic_indicators_sheet = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:T")
+    industry_agnostic_units_to_convert = industry_agnostic_indicators_sheet[industry_agnostic_indicators_sheet['isUnitConversion'] == "TRUE"]
+    industry_agnostic_units_to_convert = industry_agnostic_units_to_convert[['IndicatorID', 'isUnitConversion', 'targetUnit']]
+
+    industry_specific_indicators_sheet = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustrySpecificIndicators!A1:K")
+    industry_specific_indicators_sheet = industry_specific_indicators_sheet[industry_specific_indicators_sheet['isUnitConversion'] == "TRUE"]
+    industry_specific_indicators_sheet = industry_specific_indicators_sheet[['IndicatorID', 'isUnitConversion', 'targetUnit']]
+
+    units_to_convert = pd.concat([industry_agnostic_units_to_convert, industry_specific_indicators_sheet])
 
     return units_to_convert
 
-def select_all_groundtruth_rows():
-    sql_query = "SELECT * FROM democratizeesg.groundtruth4;"
+def select_all_dataset_rows():
+    sql_query = "SELECT * FROM democratizeesg.big_dataset_consolidated;"
     mycursor.execute(sql_query)
     results = mycursor.fetchall()
 
@@ -51,24 +59,27 @@ def select_multiplication_factor(source_unit, target_unit):
 
 def insert_into_new_table(groundtruth_row):
     try:
-        sql = ("INSERT INTO groundtruth4_unit_converted (id, industry, company_name, year, indicator_id, not_disclosed, value, "
-               "unit, searchword, pagenumber, source_title, source_link, notes) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+        sql = ("INSERT INTO big_dataset_consolidated_unit_converted (id, industry, company_name, year, indicator_id, not_disclosed, value, "
+               "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
         val = (groundtruth_row[0], groundtruth_row[1], groundtruth_row[2], groundtruth_row[3], groundtruth_row[4],
                groundtruth_row[5], groundtruth_row[6], groundtruth_row[7], groundtruth_row[8],
-               groundtruth_row[9], groundtruth_row[10], groundtruth_row[11], '')
+               groundtruth_row[9], groundtruth_row[10], groundtruth_row[11], groundtruth_row[12], groundtruth_row[13])
         mycursor.execute(sql, val)
 
         mydb.commit()
     except IntegrityError as e:
-        print(f"{groundtruth_row[2]}, {groundtruth_row[3]}, {groundtruth_row[4]} already exists in target table")
+        pass
+        #print(f"{groundtruth_row[2]}, {groundtruth_row[3]}, {groundtruth_row[4]} already exists in target table")
 
 def insert_into_unit_conversion_table(source_unit, target_unit, multiplication_factor):
     sql = "INSERT INTO unit_conversion (source_unit, target_unit, multiplication_factor) VALUES (%s, %s, %s)"
     val = (source_unit, target_unit, multiplication_factor)
-    mycursor.execute(sql, val)
-
-    mydb.commit()
-    print(f"Inserted new entry into unit_conversion table: {source_unit}, {target_unit}, {multiplication_factor}")
+    try:
+        mycursor.execute(sql, val)
+        mydb.commit()
+        print(f"Inserted new entry into unit_conversion table: {source_unit}, {target_unit}, {multiplication_factor}")
+    except IntegrityError as e:
+        print("IntegrityError")
 
 def send_request(prompt):
     response = client.models.generate_content(
@@ -87,7 +98,7 @@ def send_request(prompt):
             continue
         if part.thought:
             thoughts = part.text
-            print(thoughts)
+            #print(thoughts)
 
     parsed_response: ConversionFactor = response.parsed
     return parsed_response
@@ -115,7 +126,9 @@ def create_unit_conversion_prompt(source_unit, target_unit):
                     "multiplication_factor": 3.55
                 }}
                 
-                If there is really no way to get from the source unit to the target unit, you can return 0.0 as the multiplication_factor.
+                If it is not possible to generate a conversion factor from the source unit to the target unit, you return 0.0 as the multiplication_factor.
+                If you are not sure what you are looking for, please stay on the safe side and just return 0.0. 
+                For example, you can't convert tonnes to GWh, without knowing what substance we have measured the weight of.
                 
                 #Here are a few examples from the existing conversion database:
                 {relevant_examples}   
@@ -130,16 +143,27 @@ def prompt_gemini_for_conversion_factor(source_unit, target_unit):
 
 def update_unit_value(groundtruth_row, multiplication_factor, source_unit, target_unit):
     old_value = groundtruth_row[6]
-    groundtruth_row[6] = str(round(float(old_value) * float(multiplication_factor), 2))
+    try:
+        groundtruth_row[6] = str(round(float(old_value) * float(multiplication_factor), 2))
+    except ValueError as e:
+        print(e)
     groundtruth_row[7] = target_unit
-    print(f"{old_value} {source_unit} ---> {groundtruth_row[6]} {target_unit}")
+    #print(f"{old_value} {source_unit} ---> {groundtruth_row[6]} {target_unit}")
 
-def clean_number_string(text):
-    input = text
-    text = str(text)
+def clean_number_string(dataset_row):
+    text = str(dataset_row[6])
 
-    # Remove any spaces in the number
-    text.replace(' ', '')
+    # Remove unwanted symbols in the number
+    unwanted_symbols = ['more than', "More than", "at least", ' ', '(', ')', '<', '>', 'around', 'over', 'under', '$', '+', '\n', 'nearly']
+    for unwanted_symbol in unwanted_symbols:
+        text = text.replace(unwanted_symbol, '')
+
+    #Move number words to unit
+    number_words = ["million", "billion", "BILLION" "trillion", "triliun", "thousand", "m", "k", "M", "K", "bn", "B"]
+    for number_word in number_words:
+        if number_word in text:
+            text = text.replace(number_word, "")
+            dataset_row[7] = f"{number_word} {dataset_row[7]}"
 
     # Step 1: Handle mixed format (e.g., 1.187.923,68)
     if '.' in text and ',' in text:
@@ -163,28 +187,32 @@ def clean_number_string(text):
 
 def main():
     indicators_to_convert = find_indicators_to_convert()
-    groundtruth_all_rows = select_all_groundtruth_rows()
+    dataset_all_rows = select_all_dataset_rows()
 
-    for groundtruth_row in groundtruth_all_rows:
-        groundtruth_row_indicator_id = groundtruth_row[4]
-        if (indicators_to_convert['IndicatorID'] == groundtruth_row_indicator_id).any(): #Indicator should be convertet
-            not_disclosed = groundtruth_row[5]
+    for dataset_row in dataset_all_rows:
+        dataset_row_indicator_id = dataset_row[4]
+        if (indicators_to_convert['IndicatorID'] == dataset_row_indicator_id).any(): #Indicator should be convertet
+            not_disclosed = dataset_row[5]
             if not_disclosed == 0: #Indicator is disclosed
-                groundtruth_row = list(groundtruth_row)
-                groundtruth_row[6] = clean_number_string(groundtruth_row[6])
-                source_unit = groundtruth_row[7]
-                target_unit = indicators_to_convert[indicators_to_convert['IndicatorID'] == groundtruth_row_indicator_id]['targetUnit'].item()
-                if source_unit != target_unit:
+                dataset_row = list(dataset_row)
+                dataset_row[6] = clean_number_string(dataset_row)
+                source_unit = dataset_row[7]
+                try:
+                    target_unit_rows = indicators_to_convert[indicators_to_convert['IndicatorID'] == dataset_row_indicator_id]
+                    target_unit = target_unit_rows.head(1)['targetUnit'].item()
+                except ValueError as e:
+                    print(e)
+                if target_unit is not None and source_unit != target_unit:
                     multiplication_factor = select_multiplication_factor(source_unit, target_unit)
 
-                    if target_unit is not None and multiplication_factor is None: #We should do a conversion based on the indicator, but don't have a factor
+                    if multiplication_factor is None: #We should do a conversion based on the indicator, but don't have a factor yet
                         multiplication_factor = prompt_gemini_for_conversion_factor(source_unit, target_unit)
                         insert_into_unit_conversion_table(source_unit, target_unit, multiplication_factor)
-                        update_unit_value(groundtruth_row, multiplication_factor, source_unit, target_unit)
-                    elif multiplication_factor != 0 and multiplication_factor is not None: #conversion is possible for this source unit and we should do conversion based on the indicator
-                        update_unit_value(groundtruth_row, multiplication_factor, source_unit, target_unit)
 
-        insert_into_new_table(groundtruth_row)
+                    if multiplication_factor != 0 and multiplication_factor is not None: #conversion is possible for this source unit and we should do conversion based on the indicator
+                        update_unit_value(dataset_row, multiplication_factor, source_unit, target_unit)
+
+        insert_into_new_table(dataset_row)
 
 
 if __name__ == "__main__":

@@ -57,9 +57,9 @@ def selectAvgInputTokenCount(source_title: str):
 
     return avg_input_token_count
 
-def split_upload_pdf(pdf_as_bytes, n_parts, company_name, year):
+def split_upload_pdf(doc: CompanyReportFile, n_parts):
     uploaded_docs = {}
-    pdf_stream = BytesIO(pdf_as_bytes)
+    pdf_stream = BytesIO(doc.file_value)
     pdf_reader = pypdf.PdfReader(pdf_stream)
     pdf_chunk_bytes_io = BytesIO()
     total_pages = len(pdf_reader.pages)
@@ -80,7 +80,7 @@ def split_upload_pdf(pdf_as_bytes, n_parts, company_name, year):
         print(f"time to add pages file: {int(end - start)}")
 
         start = time.time()
-        output_filename = f"chunk_{i + 1}_pages_{start_index + 1}_{end_index}"
+        output_filename = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}_chunk_{i + 1}_pages_{start_index + 1}_{end_index}"
         output_path = output_dir / (output_filename +  '.pdf')
         with open(output_path, "wb") as output_file:
             pdf_writer.write(output_file)
@@ -88,12 +88,12 @@ def split_upload_pdf(pdf_as_bytes, n_parts, company_name, year):
         print(f"time to write file: {int(end - start)}")
 
         pdf_writer.write(pdf_chunk_bytes_io)
-        uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
-
-        uploaded_docs[output_filename] = UploadedChunk(i + 1, start_index + 1, end_index, uploaded_doc)
+        uploaded_docs[output_filename] = upload_chunk(pdf_chunk_bytes_io)
+        #uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
+        #uploaded_docs[output_filename] = UploadedChunk(i + 1, start_index + 1, end_index, uploaded_doc)
         #uploaded_docs[output_filename] = uploaded_doc
 
-        print(f"Created '{output_filename}' with {end_index - start_index} pages. Uploaded with id {uploaded_doc.name}")
+        print(f"Created '{output_filename}' with {end_index - start_index} pages. Uploaded with id {uploaded_docs[output_filename].name}")
 
         #Set the start index for the NEXT chunk (this creates the overlap)
         start_index = end_index - 1
@@ -105,19 +105,17 @@ def split_upload_pdf(pdf_as_bytes, n_parts, company_name, year):
         for page_num in range(start_index, total_pages):
             final_writer.add_page(pdf_reader.pages[page_num])
 
-
-
-        output_filename = f"chunk_{n_parts}_pages_{start_index + 1}_{total_pages}"
+        output_filename = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}chunk_{n_parts}_pages_{start_index + 1}_{total_pages}"
         output_path = output_dir / (output_filename +  '.pdf')
         with open(output_path, "wb") as output_file:
             final_writer.write(output_file)
 
         final_writer.write(pdf_chunk_bytes_io)
-        uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
-        uploaded_docs[output_filename] = UploadedChunk(n_parts, start_index + 1, total_pages, uploaded_doc)
-        #uploaded_docs[output_filename] = uploaded_doc
+        uploaded_docs[output_filename] = upload_chunk(pdf_chunk_bytes_io)
+        #uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
+        #uploaded_docs[output_filename] = UploadedChunk(n_parts, start_index + 1, total_pages, uploaded_doc)
 
-        print(f"Created '{output_filename}' with {total_pages - start_index} pages. Uploaded with id {uploaded_doc.name}")
+        print(f"Created '{output_filename}' with {total_pages - start_index} pages. Uploaded with id {uploaded_docs[output_filename].name}")
 
     return uploaded_docs
 

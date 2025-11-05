@@ -1,14 +1,16 @@
 import asyncio
-import io
+from io import BytesIO
 import json
+import math
 import time
+from pathlib import Path
 
 import httpx
+import pypdf
 from google import genai
 from google.genai import types
 from google.genai.types import GenerateContentConfig
 
-#from ChainOfAgents import promptTemplateCoA
 from GroundTruth import loadSheet
 from pydantic import BaseModel
 
@@ -35,41 +37,50 @@ class CommunicationUnit(BaseModel):
 client = genai.Client()
 
 async def promptDocumentsAsync(documents: list[CompanyReportFile]):
+
+
+
   for doc in documents:
     print(f"Now prompting document: {doc.company_name} {doc.period} {doc.topic} {doc.mimetype} {doc.counter} ")
 
-    doc_io = io.BytesIO(doc.file_value)
-    uploaded_doc = await client.aio.files.upload(
-      file=doc_io,
-      config=dict(
-        mime_type=doc.mimetype)
-    )
+    uploaded_docs_dict = handle_file_upload(doc)
+    # uploaded_doc = uploadDoc(doc)
 
-    prompts = generatePromptsDictionary(doc)
-    tasks = []
-    for indicatorID in prompts:
-      task = getGeminiResponseAsync(uploaded_doc, prompts[indicatorID], indicatorID)
-      tasks.append(task)
+    for uploaded_doc_name in uploaded_docs_dict:
+      #prompts = generatePromptsDictionary(doc)
 
-    results = await asyncio.gather(*tasks)
+    #doc_io = BytesIO(doc.file_value)
+    #uploaded_doc = await client.aio.files.upload(
+    #  file=doc_io,
+    #  config=dict(
+    #    mime_type=doc.mimetype)
+    #)
 
-    for result in results:
-      response = result[0]
-      elapsed_time = result[1]
-      indicatorID = result[2]
-      thoughts = ""
-      for part in response.candidates[0].content.parts:
-        if not part.text:
-          continue
-        if part.thought:
-          thoughts = part.text
-      response_metadata = response.usage_metadata
-      parsed_indicator: IndicatorExtraction = response.parsed
-      parsed_indicator.indicator_id = indicatorID
+      prompts = generatePromptsDictionary(doc)
+      tasks = []
+      for indicatorID in prompts:
+        task = getGeminiResponseAsync(uploaded_docs_dict[uploaded_doc_name], prompts[indicatorID], indicatorID)
+        tasks.append(task)
 
-      insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
+      results = await asyncio.gather(*tasks)
 
-    client.files.delete(name=uploaded_doc.name)
+      for result in results:
+        response = result[0]
+        elapsed_time = result[1]
+        indicatorID = result[2]
+        thoughts = ""
+        for part in response.candidates[0].content.parts:
+          if not part.text:
+            continue
+          if part.thought:
+            thoughts = part.text
+        response_metadata = response.usage_metadata
+        parsed_indicator: IndicatorExtraction = response.parsed
+        parsed_indicator.indicator_id = indicatorID
+
+        insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
+
+    #client.files.delete(name=uploaded_doc.name)
 
 async def getGeminiResponseAsync(uploaded_chunk, prompt, indicatorID):
   response = None
@@ -113,42 +124,156 @@ async def getGeminiResponseAsync(uploaded_chunk, prompt, indicatorID):
   print(f"IndicatorID: {indicatorID}, elapsed time: {elapsed_time} s")
   return response, elapsed_time, indicatorID, uploaded_chunk
 
+
+def handle_file_upload(doc: CompanyReportFile):
+  max_file_size = 30000000
+  uploaded_chunks_dict = {}
+
+  if int(doc.file_size) < max_file_size:
+    uploaded_doc = uploadDoc(doc)
+    doc_name = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}"
+    uploaded_chunks_dict[doc_name] = uploaded_doc
+  else:
+    parts_required = math.ceil(int(doc.file_size) / max_file_size)
+    uploaded_chunks_dict = split_upload_pdf(doc, parts_required)
+
+  return uploaded_chunks_dict
+
+def split_upload_pdf(doc: CompanyReportFile, n_parts):
+  uploaded_docs = {}
+  pdf_stream = BytesIO(doc.file_value)
+  pdf_reader = pypdf.PdfReader(pdf_stream)
+  pdf_chunk_bytes_io = BytesIO()
+  total_pages = len(pdf_reader.pages)
+  #output_dir = Path("split_pdfs")
+  #output_dir.mkdir(exist_ok=True)
+  base_chunk_size = total_pages // n_parts
+
+  start_index = 0
+  # Loop through and create the first n-1 chunks
+  for i in range(n_parts - 1):
+    end_index = start_index + base_chunk_size
+    pdf_writer = pypdf.PdfWriter()
+
+    start = time.time()
+    for page_num in range(start_index, end_index):
+      pdf_writer.add_page(pdf_reader.pages[page_num])
+      #pdf_reader.pages[page_num].compress_content_streams()
+    end = time.time()
+    print(f"time to add pages file: {int(end - start)}")
+
+    #start = time.time()
+    output_filename = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}_chunk_{i + 1}_pages_{start_index + 1}_{end_index}"
+    #output_path = output_dir / (output_filename + '.pdf')
+    #with open(output_path, "wb") as output_file:
+    #  pdf_writer.write(output_file)
+    #end = time.time()
+    #print(f"time to write file: {int(end - start)}")
+
+    pdf_writer.write(pdf_chunk_bytes_io)
+    uploaded_docs[output_filename] = upload_chunk(pdf_chunk_bytes_io)
+    # uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
+    # uploaded_docs[output_filename] = UploadedChunk(i + 1, start_index + 1, end_index, uploaded_doc)
+    # uploaded_docs[output_filename] = uploaded_doc
+
+    print(
+      f"Created '{output_filename}' with {end_index - start_index} pages. Uploaded with id {uploaded_docs[output_filename].name}")
+
+    # Set the start index for the NEXT chunk (this creates the overlap)
+    start_index = end_index - 1
+
+  # 4. Create the final chunk with all remaining pages
+  if start_index < total_pages:
+    final_writer = pypdf.PdfWriter()
+    # The last chunk goes from the last start_index all the way to the end
+    for page_num in range(start_index, total_pages):
+      final_writer.add_page(pdf_reader.pages[page_num])
+
+    output_filename = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}_chunk_{n_parts}_pages_{start_index + 1}_{total_pages}"
+    #output_path = output_dir / (output_filename + '.pdf')
+    #with open(output_path, "wb") as output_file:
+    #  final_writer.write(output_file)
+
+    final_writer.write(pdf_chunk_bytes_io)
+    uploaded_docs[output_filename] = upload_chunk(pdf_chunk_bytes_io)
+    # uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
+    # uploaded_docs[output_filename] = UploadedChunk(n_parts, start_index + 1, total_pages, uploaded_doc)
+
+    print(
+      f"Created '{output_filename}' with {total_pages - start_index} pages. Uploaded with id {uploaded_docs[output_filename].name}")
+
+  return uploaded_docs
+
+def upload_chunk(pdf_chunk_bytes_io):
+  uploaded_doc = None
+  start = time.time()
+
+  retries = 0
+  max_retries: int = 5
+  initial_delay: float = 1.0
+  backoff_factor: float = 2.0
+
+  delay = initial_delay
+  pdf_chunk_bytes_io.seek(0)
+  try:
+    uploaded_doc = client.files.upload(
+      file=pdf_chunk_bytes_io,
+      config=dict(
+        mime_type="application/pdf")
+    )
+  except httpx.RemoteProtocolError as e:
+    retries += 1
+    if retries >= max_retries:
+      print(f"Upload failed after {retries} retries.")
+      raise e
+    print(f"Upload failed with RemoteProtocolError. Retrying in {delay} seconds.")
+    time.sleep(delay)
+    delay *= backoff_factor
+
+  end = time.time()
+  print(f"time to upload pdf: {int(end - start)}")
+
+  return uploaded_doc
+
 def createBatchRequestJson(all_companyYearReports):
   requests_data = []
   for doc in all_companyYearReports:
-    uploaded_doc = uploadDoc(doc)
-    prompts = generatePromptsDictionary(doc)
+    uploaded_docs_dict = handle_file_upload(doc)
+    #uploaded_doc = uploadDoc(doc)
 
-    for indicatorID in prompts:
-      request = {
-        "key": f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}-{indicatorID}",
-        "request": {
-          "contents": [{
-            "parts": [
-              {"text": prompts[indicatorID]},
-              {"file_data": {"file_uri": uploaded_doc.uri, "mime_type": uploaded_doc.mime_type}}
-            ]
-          }],
-          "generationConfig": {
-            "thinking_config": {
-              "include_thoughts": True,
-              "thinking_budget": -1
-            },
-            "response_mime_type": "application/json",
-            "response_json_schema": IndicatorExtraction.model_json_schema()
+    for uploaded_doc_name in uploaded_docs_dict:
+      prompts = generatePromptsDictionary(doc)
+
+      for indicatorID in prompts:
+        request = {
+          "key": f"{uploaded_doc_name}-{indicatorID}",
+          "request": {
+            "contents": [{
+              "parts": [
+                {"text": prompts[indicatorID]},
+                {"file_data": {"file_uri": uploaded_docs_dict[uploaded_doc_name].uri, "mime_type": uploaded_docs_dict[uploaded_doc_name].mime_type}}
+              ]
+            }],
+            "generationConfig": {
+              "thinking_config": {
+                "include_thoughts": True,
+                "thinking_budget": -1
+              },
+              "response_mime_type": "application/json",
+              "response_json_schema": IndicatorExtraction.model_json_schema()
+            }
           }
         }
-      }
-      requests_data.append(request)
+        requests_data.append(request)
 
-    json_file_path = 'batch_input_output_files/big_dataset_1.json'
-    print(f"Writing JSONL file: {json_file_path}")
-    with open(json_file_path, 'w') as f:
-        for req in requests_data:
-            f.write(json.dumps(req) + '\n')
+      json_file_path = 'batch_input_output_files/big_dataset_tofix.json'
+      print(f"Writing JSONL file: {json_file_path}")
+      with open(json_file_path, 'w') as f:
+          for req in requests_data:
+              f.write(json.dumps(req) + '\n')
 
 def uploadDoc(doc: CompanyReportFile):
-    doc_io = io.BytesIO(doc.file_value)
+    doc_io = BytesIO(doc.file_value)
     uploaded_doc =  client.files.upload(
       file=doc_io,
       config=dict(

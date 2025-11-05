@@ -38,11 +38,11 @@ async def main():
 def get_all_company_year_reports():
   all_companyYearReports = []
 
-  with open('companyYearReports.pkl', 'rb') as f:
+  #with open('companyYearReports.pkl', 'rb') as f:
     #    # Load the object from the file
-    all_companyYearReports = pickle.load(f)
+    #all_companyYearReports = pickle.load(f)
 
-  industries_to_collect = ["Airlines", "Automobiles", "Cement", "Chemicals", "CoalMining"]
+  industries_to_collect = ["Other Transportation", "Paper", "Shipping", "Steel"]
   years_to_collect = ["2020", "2021", "2022", "2023", "2024"]
 
   groundtruth_reportsList = loadSheet(groundtruth_sheet_id, big_dataset_range)
@@ -54,29 +54,31 @@ def get_all_company_year_reports():
         print(f"Retrieved {len(companyYearReports)} documents for {row['Company']} {year}")
         all_companyYearReports.extend(companyYearReports)
 
-      with open('companyYearReports.pkl', 'wb') as file:
+      #with open('companyYearReports.pkl', 'wb') as file:
         # 3. Use pickle.dump() to write the object to the file
-        pickle.dump(all_companyYearReports, file)
-        print(f"companyYearReports.pkl aktualisiert.")
+        #pickle.dump(all_companyYearReports, file)
+        #print(f"companyYearReports.pkl aktualisiert.")
 
   return all_companyYearReports
 
 async def fullcontext_async():
-  groundtruth_reportsList = loadSheet(groundtruth_sheet_id, test_sheet_range)
-  for index, row in groundtruth_reportsList.iterrows():
-    if row['Collected'] == "TRUE":
-      print(f"{row['Company']} already collected, skipping")
-      continue
+  #groundtruth_reportsList = loadSheet(groundtruth_sheet_id, test_sheet_range)
+  #for index, row in groundtruth_reportsList.iterrows():
+  #  if row['Collected'] == "TRUE":
+  #    print(f"{row['Company']} already collected, skipping")
+  #    continue
 
     start = time.time()
-    companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
+    #companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], row['Year'])
+    companyYearReports = retrieveCompanyYearReports("ElectricUtilities", "CEZ", "2021")
     for companyYearReport in companyYearReports:
       print(
         f"CompanyName: {companyYearReport.company_name}, Topic: {companyYearReport.topic}, MimeType: {companyYearReport.mimetype}, Size: {companyYearReport.file_size}, Counter: {companyYearReport.counter}")
     # promptDocuments(companyYearReports)
     await promptDocumentsAsync(companyYearReports)
     end = time.time()
-    print(f"Time elapsed for {row['Company']}: {int(end - start)}s")
+    #print(f"Time elapsed for {row['Company']}: {int(end - start)}s")
+    print(f"Time elapsed for CEZ: {int(end - start)}s")
 
 def retrieveCompanyYearReports(industry, companyName, year):
   creds = Credentials.from_authorized_user_file("token.json", SCOPES)
