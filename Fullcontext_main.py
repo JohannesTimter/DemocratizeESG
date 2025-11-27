@@ -41,23 +41,23 @@ def get_all_company_year_reports():
   #with open('companyYearReports.pkl', 'rb') as f:
     #    # Load the object from the file
     #all_companyYearReports = pickle.load(f)
-
-  industries_to_collect = ["Other Transportation", "Paper", "Shipping", "Steel"]
+  # with open('companyYearReports.pkl', 'wb') as file:
+  # 3. Use pickle.dump() to write the object to the file
+  # pickle.dump(all_companyYearReports, file)
+  # print(f"companyYearReports.pkl aktualisiert.")
+  industries_to_collect = ["Airlines", "Automobiles", "Cement", "Chemicals", "ConsumerGoods & Services", "DiversifiedMining", "ElectricUtilities",
+  "Oil & Gas","Oil and gas distribution", "Other Industrials", "Other Transportation", "Paper", "Shipping", "Steel"]
   years_to_collect = ["2020", "2021", "2022", "2023", "2024"]
 
   groundtruth_reportsList = loadSheet(groundtruth_sheet_id, big_dataset_range)
   for index, row in groundtruth_reportsList.iterrows():
-    if row['Industry'] in industries_to_collect and row['Collected'] != "TRUE":
       for year in years_to_collect:
         print(f"Now collecting documents: {row['Company']} {year}")
         companyYearReports = retrieveCompanyYearReports(row['Industry'], row['Company'], year)
         print(f"Retrieved {len(companyYearReports)} documents for {row['Company']} {year}")
         all_companyYearReports.extend(companyYearReports)
 
-      #with open('companyYearReports.pkl', 'wb') as file:
-        # 3. Use pickle.dump() to write the object to the file
-        #pickle.dump(all_companyYearReports, file)
-        #print(f"companyYearReports.pkl aktualisiert.")
+
 
   return all_companyYearReports
 
@@ -156,6 +156,8 @@ def getFilesInFolder(service, folder_id):
   return sorted_items
 
 def download_file(service, report_file):
+  return "fake"
+
   file_id = report_file['id']
   mimeType = report_file['mimeType']
   MAX_RETRIES = 5

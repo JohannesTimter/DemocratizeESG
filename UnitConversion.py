@@ -45,7 +45,7 @@ def select_all_dataset_rows():
 
     return results
 
-def select_multiplication_factor(source_unit, target_unit):
+def select_multiplication_factor(source_unit, target_unit, value):
     #print(f"source_unit: {source_unit}, target_unit: {target_unit}")
     sql_query = "SELECT multiplication_factor FROM democratizeesg.unit_conversion WHERE source_unit = %s AND target_unit = %s;"
     val = source_unit, target_unit
@@ -55,11 +55,19 @@ def select_multiplication_factor(source_unit, target_unit):
     if len(results) == 0:
         return None
 
-    return results[0][0]
+    multiplication_factor = results[0][0]
+    if multiplication_factor == 666: #Special case of MT CO2e
+        if float(value) < 5000:
+            multiplication_factor = 1 #It's probably mega tons
+        else:
+            multiplication_factor = 0.000001 #It's probably metric tons
+
+
+    return multiplication_factor
 
 def insert_into_new_table(groundtruth_row):
     try:
-        sql = ("INSERT INTO big_dataset_consolidated_unit_converted (id, industry, company_name, year, indicator_id, not_disclosed, value, "
+        sql = ("INSERT INTO big_dataset_consolidated_unit_converted3 (id, industry, company_name, year, indicator_id, not_disclosed, value, "
                "unit, pagenumber, source_title, text_section, input_token_count, output_token_count, thought_summary) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
         val = (groundtruth_row[0], groundtruth_row[1], groundtruth_row[2], groundtruth_row[3], groundtruth_row[4],
                groundtruth_row[5], groundtruth_row[6], groundtruth_row[7], groundtruth_row[8],
@@ -152,38 +160,74 @@ def update_unit_value(groundtruth_row, multiplication_factor, source_unit, targe
 
 def clean_number_string(dataset_row):
     text = str(dataset_row[6])
-
-    # Remove unwanted symbols in the number
-    unwanted_symbols = ['more than', "More than", "at least", ' ', '(', ')', '<', '>', 'around', 'over', 'under', '$', '+', '\n', 'nearly']
-    for unwanted_symbol in unwanted_symbols:
-        text = text.replace(unwanted_symbol, '')
-
-    #Move number words to unit
-    number_words = ["million", "billion", "BILLION" "trillion", "triliun", "thousand", "m", "k", "M", "K", "bn", "B"]
-    for number_word in number_words:
-        if number_word in text:
-            text = text.replace(number_word, "")
-            dataset_row[7] = f"{number_word} {dataset_row[7]}"
-
-    # Step 1: Handle mixed format (e.g., 1.187.923,68)
-    if '.' in text and ',' in text:
-        text = text.replace('.', '')
-
-    # Step 2: Handle comma as thousands separator (e.g., 13,532,370 or 1,234)
-    # Check for multiple commas or a single comma followed by 3 digits
-    if text.count(',') > 1 or (text.count(',') == 1 and len(text.split(',')[1]) == 3):
-        text = text.replace(',', '')
-
-    # Step 3: Standardize decimal comma to a dot (e.g., 33,3 or the result from step 1)
-    text = text.replace(',', '.')
-
-    # If there are multiple points and no commas (e.g. 65.574.681) remove all of them
-    if text.count('.') > 1 and text.count(',') == 0:
-        text = text.replace('.', '')
+    #text = dataset_row
+    text = fix_words(dataset_row, text)
+    text = fix_dots_commas(text)
 
     #print(f"{input} -----> {text}")
     return text
 
+def fix_dots_commas(text):
+    count_dot = text.count('.')
+    count_comma = text.count(',')
+
+    # Case 1: Both separators are present (e.g., "3,636.0" or "65.574,681")
+    # This is your original, most robust rule.
+    if count_dot > 0 and count_comma > 0:
+        if text.rfind('.') > text.rfind(','):
+            # Dot is decimal, comma is thousands
+            return text.replace(',', '')
+        else:
+            # Comma is decimal, dot is thousands
+            return text.replace('.', '').replace(',', '.')
+
+    # Case 2: Only commas are present (e.g., "10,000" or "13,478" or "123,45")
+    elif count_comma > 0:
+        if count_comma > 1:
+            # Multiple commas, must be thousands separators
+            return text.replace(',', '')
+        else:
+            # Single comma. Apply your new rule.
+            parts = text.split(',')
+            if len(parts[1]) == 3 and parts[0] != '0':
+                # e.g., "13,478". Comma is thousands separator.
+                return text.replace(',', '')
+            else:
+                # e.g., "123,45". Comma is decimal separator.
+                return text.replace(',', '.')
+
+    # Case 3: Only dots are present (e.g., "65.574.681" or "1.234" or "123.45")
+    elif count_dot > 0:
+        if count_dot > 1:
+            # Multiple dots, must be thousands separators
+            return text.replace('.', '')
+        else:
+            # Single dot. Apply your new rule.
+            parts = text.split('.')
+            if len(parts[1]) == 3 and parts[0] != '0':
+                # e.g., "1.234". Dot is thousands separator.
+                return text.replace('.', '')
+            else:
+                # e.g., "123.45". Dot is decimal separator.
+                return text
+
+    # Case 4: No separators (e.g., "12345")
+    else:
+        return text
+
+def fix_words(dataset_row, text):
+    # Remove unwanted symbols in the number
+    unwanted_symbols = ['more than', "More than", "at least", ' ', '(', ')', '<', '>', 'around', 'over', 'under', '$',
+                        '+', '\n', 'nearly']
+    for unwanted_symbol in unwanted_symbols:
+        text = text.replace(unwanted_symbol, '')
+    # Move number words to unit
+    number_words = ["million", "billion", "BILLION", "trillion", "triliun", "thousand", "m", "k", "M", "K", "bn", "B"]
+    for number_word in number_words:
+        if number_word in text:
+            text = text.replace(number_word, "")
+            dataset_row[7] = f"{number_word} {dataset_row[7]}"
+    return text
 
 def main():
     indicators_to_convert = find_indicators_to_convert()
@@ -203,7 +247,7 @@ def main():
                 except ValueError as e:
                     print(e)
                 if target_unit is not None and source_unit != target_unit:
-                    multiplication_factor = select_multiplication_factor(source_unit, target_unit)
+                    multiplication_factor = select_multiplication_factor(source_unit, target_unit, dataset_row[6])
 
                     if multiplication_factor is None: #We should do a conversion based on the indicator, but don't have a factor yet
                         multiplication_factor = prompt_gemini_for_conversion_factor(source_unit, target_unit)
@@ -214,6 +258,10 @@ def main():
 
         insert_into_new_table(dataset_row)
 
+#def main2():
+    #print(clean_number_string("17.526"))
+
 
 if __name__ == "__main__":
+    #main2()
     main()
