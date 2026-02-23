@@ -1,25 +1,21 @@
 import asyncio
 import json
-import math, httpx, time, pypdf, pickle, sys
-from io import BytesIO
+import pickle, sys
 from pathlib import Path
 
-from _mysql_connector import MySQLInterfaceError
 from mysql.connector import IntegrityError
-from pydantic import BaseModel
 
 from CompanyReportFile import CompanyReportFile, Topic
-from Fullcontext_main import retrieveCompanyYearReports, get_all_company_year_reports
 from google import genai
-from google.genai import types
-from google.genai.types import GenerateContentConfig
 import mysql.connector
 
+from Fullcontext_main import get_all_company_year_reports
 from Gemini import getGeminiResponseAsync, CommunicationUnit
 from GroundTruth import loadSheet
 from MySQL_client import createDocumentName
+from utils import split_upload_pdf
 
-sys.setrecursionlimit(6000) #pypdf runs into recursion problems with large pdfs
+sys.setrecursionlimit(6000) #pypdf runs into recursion problems with large pdfs -> increase recursion limit
 max_context = 20000
 max_retries = 8
 initial_delay_seconds = 5
@@ -27,7 +23,7 @@ initial_delay_seconds = 5
 mydb = mysql.connector.connect(
   host="localhost",
   user="root",
-  password="MyN3wP4ssw0rd",
+  password="MyN3wP4ssw0rd", #local db, so no need for .env
   database="democratizeesg"
 )
 mycursor = mydb.cursor()
@@ -44,111 +40,6 @@ class UploadedChunk:
         self.page_start = page_start
         self.page_end = page_end
         self.uploaded_doc_reference = uploaded_doc_reference
-
-def selectAvgInputTokenCount(source_title: str):
-    sql_query = ("SELECT truncate(avg(input_token_count),0) "
-                 "FROM democratizeesg.extraction_attempt3_unconsolidated "
-                 "WHERE source_title = %s")
-    val = source_title,
-    mycursor.execute(sql_query, val)
-    results = mycursor.fetchall()
-
-    avg_input_token_count = results[0][0]
-
-    return avg_input_token_count
-
-def split_upload_pdf(doc: CompanyReportFile, n_parts):
-    uploaded_docs = {}
-    pdf_stream = BytesIO(doc.file_value)
-    pdf_reader = pypdf.PdfReader(pdf_stream)
-    pdf_chunk_bytes_io = BytesIO()
-    total_pages = len(pdf_reader.pages)
-    output_dir = Path("split_pdfs")
-    output_dir.mkdir(exist_ok=True)
-    base_chunk_size = total_pages // n_parts
-
-    start_index = 0
-    #Loop through and create the first n-1 chunks
-    for i in range(n_parts - 1):
-        end_index = start_index + base_chunk_size
-        pdf_writer = pypdf.PdfWriter()
-
-        start = time.time()
-        for page_num in range(start_index, end_index):
-            pdf_writer.add_page(pdf_reader.pages[page_num])
-        end = time.time()
-        print(f"time to add pages file: {int(end - start)}")
-
-        start = time.time()
-        output_filename = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}_chunk_{i + 1}_pages_{start_index + 1}_{end_index}"
-        output_path = output_dir / (output_filename +  '.pdf')
-        with open(output_path, "wb") as output_file:
-            pdf_writer.write(output_file)
-        end = time.time()
-        print(f"time to write file: {int(end - start)}")
-
-        pdf_writer.write(pdf_chunk_bytes_io)
-        uploaded_docs[output_filename] = upload_chunk(pdf_chunk_bytes_io)
-        #uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
-        #uploaded_docs[output_filename] = UploadedChunk(i + 1, start_index + 1, end_index, uploaded_doc)
-        #uploaded_docs[output_filename] = uploaded_doc
-
-        print(f"Created '{output_filename}' with {end_index - start_index} pages. Uploaded with id {uploaded_docs[output_filename].name}")
-
-        #Set the start index for the NEXT chunk (this creates the overlap)
-        start_index = end_index - 1
-
-    # 4. Create the final chunk with all remaining pages
-    if start_index < total_pages:
-        final_writer = pypdf.PdfWriter()
-        # The last chunk goes from the last start_index all the way to the end
-        for page_num in range(start_index, total_pages):
-            final_writer.add_page(pdf_reader.pages[page_num])
-
-        output_filename = f"{doc.company_name}-{doc.period}-{doc.topic.name}-{doc.counter}chunk_{n_parts}_pages_{start_index + 1}_{total_pages}"
-        output_path = output_dir / (output_filename +  '.pdf')
-        with open(output_path, "wb") as output_file:
-            final_writer.write(output_file)
-
-        final_writer.write(pdf_chunk_bytes_io)
-        uploaded_docs[output_filename] = upload_chunk(pdf_chunk_bytes_io)
-        #uploaded_doc = upload_chunk(pdf_chunk_bytes_io)
-        #uploaded_docs[output_filename] = UploadedChunk(n_parts, start_index + 1, total_pages, uploaded_doc)
-
-        print(f"Created '{output_filename}' with {total_pages - start_index} pages. Uploaded with id {uploaded_docs[output_filename].name}")
-
-    return uploaded_docs
-
-def upload_chunk(pdf_chunk_bytes_io):
-    uploaded_doc = None
-    start = time.time()
-
-    retries = 0
-    max_retries: int = 5
-    initial_delay: float = 1.0
-    backoff_factor: float = 2.0
-
-    delay = initial_delay
-    pdf_chunk_bytes_io.seek(0)
-    try:
-        uploaded_doc = client.files.upload(
-            file=pdf_chunk_bytes_io,
-            config=dict(
-                mime_type="application/pdf")
-        )
-    except httpx.RemoteProtocolError as e:
-        retries += 1
-        if retries >= max_retries:
-            print(f"Upload failed after {retries} retries.")
-            raise e
-        print(f"Upload failed with RemoteProtocolError. Retrying in {delay} seconds.")
-        time.sleep(delay)
-        delay *= backoff_factor
-
-    end = time.time()
-    print(f"time to upload pdf: {int(end - start)}")
-
-    return uploaded_doc
 
 def promptTemplateCoA(indicatorInfos, doc):
 
@@ -250,60 +141,43 @@ def handle_chunk_results(doc: CompanyReportFile, results):
             if communication_unit.contains_information == 1:
                 insert_cu_into_table(doc, communication_unit, indicatorID, uploaded_chunk, response_metadata, thoughts, elapsed_time)
 
+def load_or_generate_safepoint(filepath, generate_func, *args, **kwargs):
+    path = Path(filepath)
+    if path.exists():
+        print(f"Loading cached state from {filepath}...")
+        with path.open('rb') as f:
+            return pickle.load(f)
+
+    print(f"Generating new data for {filepath}...")
+    data = generate_func(*args, **kwargs)
+
+    with path.open('wb') as f:
+        pickle.dump(data, f)
+
+    return data
+
 async def main():
-    # = retrieveCompanyYearReports("Automobiles", "BMW", '2024')
 
-    #companyYearReports = get_all_company_year_reports()
-
-    with open('companyYearReports.pkl', 'rb') as f:
-    #    # Load the object from the file
-        companyYearReports = pickle.load(f)
-
-    #with open('companyYearReports.pkl', 'wb') as file:
-        # 3. Use pickle.dump() to write the object to the file
-        #pickle.dump(companyYearReports, file)
+    companyYearReports = load_or_generate_safepoint(
+        'companyYearReports.pkl',
+        get_all_company_year_reports
+    )
 
     indicators_sheet = loadSheet("1QoOHmD0nxb52BIVpKyniVdYej1W5o1-sNot7DpaBl2w", "IndustryAgnostricIndicators!A1:J")
-    requests_data = []
-    #json_file_path = 'batch_input_output_files/12_companies_test_CoA.json'
-
-    # Read the batch request JSON object
-    #with open(json_file_path, 'r') as file:
-        #requests_data = [json.loads(line) for line in file]
 
     alreadyDone = ["GeneralMotors", "CHR_plc", "BASF", "Carrefour", "RioTinto", "Iberdrola", "NextEra", "FormosaPetrochemical", "bp", "ExxonMobil"]
 
     for companyYearReport in companyYearReports:
         if companyYearReport.company_name in alreadyDone:
             continue
-        source_title = f"{companyYearReport.company_name}_{companyYearReport.period}_{companyYearReport.topic.name}_{companyYearReport.counter}"
-        #avg_input_token_count = selectAvgInputTokenCount(source_title)
 
-        uploaded_pdf = client.files.upload(
-                        file=BytesIO(companyYearReport.file_value),
-                        config=dict(mime_type="application/pdf")
+        uploaded_chunks_dict = load_or_generate_safepoint(
+            'pickles/chunks.pkl',
+            split_upload_pdf,
+            companyYearReport
         )
-        token_count_response = client.models.count_tokens(
-            model="gemini-2.5-flash", contents=["Tell me about this file", uploaded_pdf]
-        )
-        print(f"Total tokens: {token_count_response.total_tokens}")
 
-        print(f"{source_title}, {token_count_response.total_tokens}")
-        parts_required = math.ceil( token_count_response.total_tokens / max_context)
-        print(f"parts_required: {parts_required}")
-
-        uploaded_chunks_dict = {}
-
-        #with open('chunks.pkl', 'rb') as f:
-            # Load the object from the file
-            #uploaded_chunks_dict = pickle.load(f)
-
-        uploaded_chunks_dict = split_upload_pdf(companyYearReport.file_value, parts_required, companyYearReport.company_name, companyYearReport.period)
-
-        with open('chunks.pkl', 'wb') as file:
-            # 3. Use pickle.dump() to write the object to the file
-            pickle.dump(uploaded_chunks_dict, file)
-
+        #Asynchronous, immediate processing:
         for uploaded_chunk in uploaded_chunks_dict:
             print(f"Prompting chunk: {uploaded_chunk}")
             tasks = []
@@ -320,17 +194,16 @@ async def main():
 
             client.files.delete(name=uploaded_chunks_dict[uploaded_chunk].uploaded_doc_reference.name)
 
+        #In case of batch processing:
         #createRequestsDataBatchCoA(companyYearReport, indicators_sheet, requests_data, uploaded_chunks_dict)
 
-
-
-        #print(f"\nCreating JSONL file: {json_file_path}")
-        #with open(json_file_path, 'w') as f:
-        #    for req in requests_data:
-        #        f.write(json.dumps(req) + '\n')
-
-
 def createRequestsDataBatchCoA(companyYearReport, indicators_sheet, requests_data, uploaded_chunks_dict):
+    requests_data = []
+    json_file_path = 'batch_input_output_files/12_companies_test_CoA.json'
+    #Read the batch request JSON object
+    with open(json_file_path, 'r') as file:
+        requests_data = [json.loads(line) for line in file]
+
     # Pro Indicator: Einmal über alle chunks drüber rutschen.
     for index, indicators_row in indicators_sheet.iterrows():
         if companyYearReport.topic == Topic.FINANCIAL:
@@ -345,6 +218,10 @@ def createRequestsDataBatchCoA(companyYearReport, indicators_sheet, requests_dat
                                                   indicators_row['IndicatorID'], prompt)
             requests_data.append(request_data)
 
+    print(f"\nCreating JSONL file: {json_file_path}")
+    with open(json_file_path, 'w') as f:
+       for req in requests_data:
+           f.write(json.dumps(req) + '\n')
 
 if __name__ == "__main__":
     asyncio.run(main())

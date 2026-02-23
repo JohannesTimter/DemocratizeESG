@@ -13,7 +13,7 @@ batch_input_output_files/CoA_part6.json
 batch_input_output_files/CoA_part7.json
 batch_input_output_files/CoA_part8.json
 batch_input_output_files/batchProcessing_file_promptTemplateCoA.json
-companyYearReports.pkl
+pickles/companyYearReports.pkl
 batch_input_output_files/big_dataset_10.json
 batch_input_output_files/big_dataset_11.json
 batch_input_output_files/big_dataset_12.json

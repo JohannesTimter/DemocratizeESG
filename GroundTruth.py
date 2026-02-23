@@ -54,7 +54,6 @@ def loadSheet(spreadsheet_id, spreadsheet_range):
       data = values[1:]
       df = pd.DataFrame(data, columns=headers)
 
-    # Now you can work with your DataFrame
     return df
   except HttpError as err:
     print(err)

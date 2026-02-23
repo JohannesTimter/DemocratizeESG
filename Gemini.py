@@ -38,24 +38,12 @@ client = genai.Client()
 
 async def promptDocumentsAsync(documents: list[CompanyReportFile]):
 
-
-
   for doc in documents:
     print(f"Now prompting document: {doc.company_name} {doc.period} {doc.topic} {doc.mimetype} {doc.counter} ")
 
     uploaded_docs_dict = handle_file_upload(doc)
-    # uploaded_doc = uploadDoc(doc)
 
     for uploaded_doc_name in uploaded_docs_dict:
-      #prompts = generatePromptsDictionary(doc)
-
-    #doc_io = BytesIO(doc.file_value)
-    #uploaded_doc = await client.aio.files.upload(
-    #  file=doc_io,
-    #  config=dict(
-    #    mime_type=doc.mimetype)
-    #)
-
       prompts = generatePromptsDictionary(doc)
       tasks = []
       for indicatorID in prompts:
@@ -80,7 +68,6 @@ async def promptDocumentsAsync(documents: list[CompanyReportFile]):
 
         insertIntoMetricExtraction(doc, parsed_indicator, response_metadata, thoughts, elapsed_time)
 
-    #client.files.delete(name=uploaded_doc.name)
 
 async def getGeminiResponseAsync(uploaded_chunk, prompt, indicatorID):
   response = None
@@ -239,7 +226,6 @@ def createBatchRequestJson(all_companyYearReports):
   requests_data = []
   for doc in all_companyYearReports:
     uploaded_docs_dict = handle_file_upload(doc)
-    #uploaded_doc = uploadDoc(doc)
 
     for uploaded_doc_name in uploaded_docs_dict:
       prompts = generatePromptsDictionary(doc)

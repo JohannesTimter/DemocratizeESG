@@ -20,7 +20,7 @@ def main():
     todo_list = selectCompanyYearsWithError()
     reports_to_reporocess = []
 
-    with open('companyYearReports.pkl', 'rb') as f:
+    with open('pickles/companyYearReports.pkl', 'rb') as f:
         # Load the object from the file
         reports_to_reporocess = pickle.load(f)
 
