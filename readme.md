@@ -11,6 +11,9 @@ DemocratizeESG is an open-source set of tools designed to evaluate the true envi
 - [Pipeline Usage](#pipeline-usage)
 - [Roadmap](#roadmap)
 
+![Automotive Emission Intensity](./Data_Analysis/automobiles_graph.png)
+
+
 ## 💡 About
 Our core contributions to the open-source community include:
 1. **Report Collection:** A dataset of 1,350 annual company reports [(link)](https://drive.google.com/drive/folders/1ysF7PHBu29_0LGV-c22iwBoPx8X_NS9N?usp=sharing).
@@ -38,6 +41,9 @@ The resulting list of 49 industry-agnostic and 70+ industry-specific eKPIs can b
 The pipeline loads the target documents and the desired eKPIs. The reports are loaded entirely into the context window of an LLM (currently Gemini 2.5 Flash), where highly engineered prompts are used to extract the target data. The extracted information is then stored in a local MySQL database for further analysis and visualization. 
 
 **🚀 Current Performance:** The pipeline achieves an **F1-Score of 93%** on our test set.
+
+![Pipeline Architecture](./Data_Analysis/DivideAndConquer_Architecture.png)
+
 
 ## 🛠️ Pipeline Usage
 
