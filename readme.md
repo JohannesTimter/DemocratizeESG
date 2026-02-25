@@ -2,6 +2,8 @@
 
 DemocratizeESG is an open-source set of tools designed to evaluate the true environmental performance of corporations. By extracting environmental key performance indicators (eKPIs) from company reports, we aim to objectively evaluate and compare the environmental impact of large companies.
 
+<img src="./Data_Analysis/automobiles_graph.png" alt="Automotive Emission Intensity" width="600">
+
 ## 📑 Table of Contents
 - [About](#about)
 - [Project Overview](#project-overview)
@@ -11,7 +13,7 @@ DemocratizeESG is an open-source set of tools designed to evaluate the true envi
 - [Pipeline Usage](#pipeline-usage)
 - [Roadmap](#roadmap)
 
-![Automotive Emission Intensity](./Data_Analysis/automobiles_graph.png)
+
 
 
 ## 💡 About
@@ -42,8 +44,7 @@ The pipeline loads the target documents and the desired eKPIs. The reports are l
 
 **🚀 Current Performance:** The pipeline achieves an **F1-Score of 93%** on our test set.
 
-![Pipeline Architecture](./Data_Analysis/DivideAndConquer_Architecture.png)
-
+<img src="./Data_Analysis/DivideAndConquer_Architecture.png" alt="Pipeline Architecture" width="600">
 
 ## 🛠️ Pipeline Usage
 
