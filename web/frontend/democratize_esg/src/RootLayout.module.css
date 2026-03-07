@@ -1,0 +1,117 @@
+.layout {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--font-family-sans);
+}
+
+.header {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 95%;
+    max-width: 64rem;
+}
+
+.headerSolid {
+    background-color: #ffffff;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+}
+
+.logo {
+    font-weight: 800;
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    letter-spacing: -0.025em;
+}
+
+.logoLink {
+    transition: color 0.3s;
+    text-decoration: none;
+}
+
+.logoSolid {
+    color: var(--primary-dark);
+}
+
+.navContainer {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .navContainer {
+        display: block;
+    }
+}
+
+.navList {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.navLink {
+    transition: all 0.2s ease-in-out;
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+}
+
+.navLink:hover {
+    background-color: rgba(15, 118, 110, 0.08);
+    color: var(--primary-color);
+}
+
+.navLinkActive {
+    background-color: var(--primary-color);
+    color: #ffffff !important;
+    box-shadow: 0 2px 4px rgba(15, 118, 110, 0.2);
+}
+
+.navLinkActive:hover {
+    background-color: var(--primary-dark);
+    color: #ffffff;
+}
+
+.linkSolid {
+    color: var(--secondary-color);
+}
+
+.ctaButton {
+    padding: 0.6rem 1.5rem;
+    border-radius: 9999px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.3s;
+    text-decoration: none;
+    display: inline-block;
+    background-color: var(--primary-color);
+    color: #ffffff;
+    box-shadow: var(--shadow-sm);
+}
+
+.ctaButton:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.mainContent {
+    flex-grow: 1;
+    display: block;
+}
