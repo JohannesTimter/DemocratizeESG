@@ -1,0 +1,401 @@
+.container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 6rem;
+}
+
+/* --- Page Header --- */
+.pageHeader {
+    max-width: 1200px;
+    width: 100%;
+    padding: 2rem 2rem 0;
+}
+
+.pageTitle {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--secondary-color);
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.02em;
+}
+
+.pageSubtitle {
+    font-size: 1.125rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* --- Filter Bar --- */
+.filterSection {
+    max-width: 1200px;
+    width: 100%;
+    padding: 2rem;
+}
+
+.filterBar {
+    display: flex;
+    flex-direction: row;
+    gap: 1.5rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+/* --- Search Button --- */
+.searchAction {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 3rem;
+}
+
+.goButton {
+    background-color: var(--primary-color);
+    color: white;
+    font-size: 1.125rem;
+    font-weight: 700;
+    padding: 0.875rem 4rem;
+    border: none;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 12px rgba(var(--primary-color-rgb), 0.2);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.goButton:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(var(--primary-color-rgb), 0.3);
+}
+
+.goButton:active {
+    transform: translateY(0);
+}
+
+/* --- Results Table --- */
+.resultsSection {
+    max-width: 1600px;
+    width: 100%;
+    padding: 0 2rem 4rem;
+}
+
+.tableWrapper {
+    width: 100%;
+    overflow-x: auto;
+    background: white;
+    border-radius: 12px;
+    border: 1px border var(--border-color);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.dataTable {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.9375rem;
+}
+
+.dataTable th {
+    background-color: var(--background-color);
+    color: var(--secondary-color);
+    font-weight: 700;
+    padding: 1rem 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+    white-space: nowrap;
+    position: relative;
+    user-select: none;
+}
+
+.sortableHeader {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.sortableHeader:hover {
+    background-color: rgba(var(--primary-color-rgb), 0.05);
+}
+
+.headerContent {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.headerLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sortIndicator {
+    display: flex;
+    align-items: center;
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.idleSortIcon {
+    color: var(--text-muted);
+    opacity: 0.3;
+    transition: opacity 0.2s ease;
+}
+
+.sortableHeader:hover .idleSortIcon {
+    opacity: 1;
+}
+
+.resizeHandle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 10;
+    transition: background-color 0.2s ease;
+}
+
+.resizeHandle:hover {
+    background-color: var(--primary-color);
+}
+
+.dataTable td {
+    padding: 1rem 1.5rem;
+    color: var(--text-dominant);
+    border-bottom: 1px solid var(--border-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dataTable tbody tr:nth-child(even) {
+    background-color: rgba(var(--primary-color-rgb), 0.05);
+}
+
+.dataTable tbody tr:hover {
+    background-color: rgba(var(--primary-color-rgb), 0.1);
+}
+
+.errorMessage {
+    max-width: 1200px;
+    width: 100%;
+    padding: 0 2rem 1rem;
+    color: #ef4444;
+    font-size: 0.9375rem;
+    text-align: center;
+}
+
+.loadingCell,
+.emptyTableMessage {
+    padding: 3rem !important;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+    background-color: transparent !important;
+}
+
+.additionalOptions {
+    margin-top: 1.5rem;
+    padding-left: 0.5rem;
+}
+
+.checkboxLabel {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+    color: var(--secondary-color);
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+}
+
+.checkboxLabel:hover {
+    color: var(--primary-color);
+}
+
+.checkbox {
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 4px;
+    border: 1.5px solid var(--border-color);
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+/* --- Show Details Button --- */
+.showDetailsButton {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.showDetailsButton:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+}
+
+/* --- Modal styles --- */
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modalContent {
+    background: white;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.modalHeader {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--background-color);
+}
+
+.modalTitle {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--secondary-color);
+    margin: 0;
+}
+
+.closeButton {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+}
+
+.closeButton:hover {
+    color: var(--primary-color);
+}
+
+.modalBody {
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+.detailGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+}
+
+.detailItem {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.detailItemFull {
+    grid-column: span 2;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.detailItem label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.detailItemFull label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.detailItem span {
+    font-size: 1rem;
+    color: var(--text-dominant);
+    font-weight: 500;
+}
+
+.scrollableText {
+    background-color: var(--background-color);
+    padding: 1rem;
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--text-dominant);
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+}
+
+.thoughtBox {
+    background-color: rgba(var(--primary-color-rgb), 0.05);
+    padding: 1.5rem;
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--text-dominant);
+    border-left: 4px solid var(--primary-color);
+    white-space: pre-wrap;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .pageTitle {
+        font-size: 1.75rem;
+    }
+
+    .filterBar {
+        flex-direction: column;
+    }
+
+    .detailGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .detailItemFull {
+        grid-column: span 1;
+    }
+}
