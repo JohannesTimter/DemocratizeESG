@@ -1,9 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 
+export interface SelectOption {
+    value: string;
+    label: string;
+}
+
 interface MultiSelectProps {
     label: string;
-    options: string[];
-    selected: string[];
+    options: SelectOption[];
+    selected: string[]; // array of 'value's
     onChange: (selected: string[]) => void;
     placeholder?: string;
     loading?: boolean;
@@ -35,18 +40,18 @@ export default function MultiSelect({
     }, []);
 
     const filtered = options.filter((opt) =>
-        opt.toLowerCase().includes(search.toLowerCase())
+        opt.label.toLowerCase().includes(search.toLowerCase())
     );
 
-    const toggleOption = (opt: string) => {
-        if (selected.includes(opt)) {
-            onChange(selected.filter((s) => s !== opt));
+    const toggleOption = (val: string) => {
+        if (selected.includes(val)) {
+            onChange(selected.filter((s) => s !== val));
         } else {
-            onChange([...selected, opt]);
+            onChange([...selected, val]);
         }
     };
 
-    const selectAll = () => onChange([...options]);
+    const selectAll = () => onChange(options.map((o) => o.value));
     const clearAll = () => onChange([]);
 
     return (
@@ -75,25 +80,27 @@ export default function MultiSelect({
                         <span className="text-[var(--text-muted)] pl-1">{placeholder}</span>
                     ) : (
                         <>
-                            {selected.slice(0, 3).map((item) => (
+                            {selected.slice(0, 3).map((itemVal) => {
+                                const opt = options.find((o) => o.value === itemVal);
+                                return (
                                 <span
-                                    key={item}
+                                    key={itemVal}
                                     className="inline-flex items-center gap-1.5 !p-1 !m-1 rounded-full text-sm font-semibold
                                                bg-[var(--primary-color)]/10 text-[var(--primary-color)] border border-[var(--primary-color)]/20"
                                 >
-                                    {item}
+                                    {opt ? opt.label : itemVal}
                                     <span
                                         role="button"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            toggleOption(item);
+                                            toggleOption(itemVal);
                                         }}
                                         className="ml-0.5 text-base leading-none hover:text-red-500 cursor-pointer font-bold transition-colors"
                                     >
                                         ×
                                     </span>
                                 </span>
-                            ))}
+                            )})}
                             {selected.length > 3 && (
                                 <span className="text-sm text-[var(--text-muted)] font-medium">
                                     +{selected.length - 3} more
@@ -159,19 +166,19 @@ export default function MultiSelect({
                             </li>
                         ) : (
                             filtered.map((opt) => (
-                                <li key={opt}>
+                                <li key={opt.value}>
                                     <label
                                         className="flex items-center gap-3 px-3 py-2.5 text-[0.95rem] cursor-pointer
                                                    hover:bg-[var(--primary-color)]/5 transition-colors"
                                     >
                                         <input
                                             type="checkbox"
-                                            checked={selected.includes(opt)}
-                                            onChange={() => toggleOption(opt)}
+                                            checked={selected.includes(opt.value)}
+                                            onChange={() => toggleOption(opt.value)}
                                             className="w-[18px] h-[18px] rounded border-[var(--border-color)] text-[var(--primary-color)]
                                                        focus:ring-[var(--primary-color)]/30 accent-[var(--primary-color)] cursor-pointer"
                                         />
-                                        <span className="text-[var(--text-dominant)] truncate">{opt}</span>
+                                        <span className="text-[var(--text-dominant)] truncate">{opt.label}</span>
                                     </label>
                                 </li>
                             ))

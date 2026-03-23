@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import styles from './DataTable.module.css';
-import MultiSelect from '../components/MultiSelect';
+import MultiSelect, { type SelectOption } from '../components/MultiSelect';
 import { ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
 
 const API_BASE = 'http://127.0.0.1:5000/api';
@@ -56,9 +56,9 @@ const COLUMNS = [
 
 export default function DataTable() {
     // Options fetched from API
-    const [industries, setIndustries] = useState<string[]>([]);
-    const [companies, setCompanies] = useState<string[]>([]);
-    const [indicators, setIndicators] = useState<string[]>([]);
+    const [industries, setIndustries] = useState<SelectOption[]>([]);
+    const [companies, setCompanies] = useState<SelectOption[]>([]);
+    const [indicators, setIndicators] = useState<SelectOption[]>([]);
 
     // Selected values
     const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
@@ -118,6 +118,7 @@ export default function DataTable() {
 
         try {
             const params = new URLSearchParams();
+            if (selectedIndustries.length > 0) params.append('industry', selectedIndustries.join(','));
             if (selectedCompanies.length > 0) params.append('company', selectedCompanies.join(','));
             if (selectedYears.length > 0) params.append('years', selectedYears.join(','));
             if (selectedIndicators.length > 0) params.append('indicator_ids', selectedIndicators.join(','));
@@ -185,21 +186,30 @@ export default function DataTable() {
         // Fetch Industries
         fetch(`${API_BASE}/industries`)
             .then((res) => res.json())
-            .then((data: string[]) => setIndustries(data))
+            .then((data: any[]) => setIndustries(data.map(item => ({ value: String(item), label: String(item) }))))
             .catch(() => setErrorIndustries('Failed to load'))
             .finally(() => setLoadingIndustries(false));
 
         // Fetch Companies
         fetch(`${API_BASE}/companies`)
             .then((res) => res.json())
-            .then((data: string[]) => setCompanies(data))
+            .then((data: any[]) => setCompanies(data.map(item => ({ value: String(item), label: String(item) }))))
             .catch(() => setErrorCompanies('Failed to load'))
             .finally(() => setLoadingCompanies(false));
 
         // Fetch Indicator IDs
         fetch(`${API_BASE}/indicator_ids`)
             .then((res) => res.json())
-            .then((data: string[]) => setIndicators(data))
+            .then((data: any[]) => {
+                const mappedOptions = data
+                    .map((item) => ({
+                        index: item[0] as number,
+                        value: String(item[1]),
+                        label: String(item[2]),
+                    }))
+                    .sort((a, b) => a.index - b.index);
+                setIndicators(mappedOptions);
+            })
             .catch(() => setErrorIndicators('Failed to load'))
             .finally(() => setLoadingIndicators(false));
 
@@ -262,7 +272,7 @@ export default function DataTable() {
                     />
                     <MultiSelect
                         label="Years"
-                        options={YEARS}
+                        options={YEARS.map(y => ({ value: y, label: y }))}
                         selected={selectedYears}
                         onChange={setSelectedYears}
                         placeholder="Select years…"

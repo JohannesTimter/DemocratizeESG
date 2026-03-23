@@ -6,21 +6,32 @@ app = Flask(__name__)
 
 @app.route("/api/data", methods=["GET"])
 def get_esg_data():
-    #industry = request.args.get("industry").split(",")
-    companies = request.args.get("company").split(",")
-    indicators = request.args.get("indicator_ids").split(",")
-    years = request.args.get("years").split(",")
+    industry = request.args.get("industry")
+    companies = request.args.get("company")
+    indicators = request.args.get("indicator_ids")
+    years = request.args.get("years")
     selectUndisclosed = request.args.get("selectUndisclosed")
 
-    selectUndisclosedBool = True if selectUndisclosed == "True" else False
+    industries = industry.split(",") if industry else []
+    companies = companies.split(",") if companies else []
+    indicators = indicators.split(",") if indicators else []
+    years = years.split(",") if years else []
 
+    if not industries and not companies:
+        return make_cors_response([])
 
-    rows = select_rows(companies, indicators, years, selectUndisclosedBool)
-    response = make_response(jsonify(rows), 200)
+    if not indicators or not years:
+        return make_cors_response([])
+
+    selectUndisclosedBool = selectUndisclosed == "True"
+
+    rows = select_rows(industries, companies, indicators, years, selectUndisclosedBool)
+    return make_cors_response(rows)
+
+def make_cors_response(data, status=200):
+    response = make_response(jsonify(data), status)
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
-
-
 
 @app.route("/api/industries", methods=["GET"])
 def get_industries():
