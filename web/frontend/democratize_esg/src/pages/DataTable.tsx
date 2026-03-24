@@ -196,7 +196,7 @@ export default function DataTable() {
         // Fetch Companies
         fetch(`${API_BASE}/companies`)
             .then((res) => res.json())
-            .then((data: any[]) => setCompanies(data.map(item => ({ value: String(item), label: String(item) }))))
+            .then((data: any[]) => setCompanies(data.map(item => ({ value: String(item[0]), label: String(item[0]), sublabel: String(item[1]) }))))
             .catch(() => setErrorCompanies('Failed to load'))
             .finally(() => setLoadingCompanies(false));
 
@@ -346,7 +346,7 @@ export default function DataTable() {
             {/* Table */}
             <div className={styles.resultsSection}>
                 <div className={styles.tableWrapper}>
-                    <table className={styles.dataTable} style={{ tableLayout: 'fixed', width: '100%', minWidth: '1536px' }}>
+                    <table className={styles.dataTable} style={{ tableLayout: 'fixed', width: '100%', minWidth: Object.values(columnWidths).reduce((sum, w) => sum + w, 0) }}>
                         <thead>
                             <tr>
                                 {COLUMNS.map((col) => (

@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, make_response
-from database_client import select_distinct, select_indicators, select_rows
+from database_client import select_distinct, select_indicators, select_rows, select_industry_average, select_companies
 
 app = Flask(__name__)
 
@@ -41,7 +41,7 @@ def get_industries():
 
 @app.route("/api/companies", methods=["GET"])
 def get_companies():
-    companies = select_distinct("company_name")
+    companies = select_companies()
     response = make_response(jsonify(companies), 200)
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
@@ -52,6 +52,19 @@ def get_indicator_ids():
     response = make_response(jsonify(indicator_ids), 200)
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
+
+
+@app.route("/api/industry_average/<industry_name>", methods=["GET"])
+def get_industry_average(industry_name: str):
+    indicator_id = request.args.get("indicator_id")
+    years_param = request.args.get("years")
+
+    if not indicator_id or not years_param:
+        return make_cors_response([], 400)
+
+    years = years_param.split(",")
+    results = select_industry_average(industry_name, indicator_id, years)
+    return make_cors_response(results)
 
 
 if __name__ == '__main__':

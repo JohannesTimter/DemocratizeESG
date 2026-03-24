@@ -6,7 +6,7 @@
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     overflow: hidden;
     border: 1px solid #e5e7eb;
-    height: 450px;
+    height: 520px;
 }
 
 .configPanel {
@@ -16,17 +16,22 @@
     padding: 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.25rem;
     flex-shrink: 0;
+    /* Fixed height from parent + scroll keeps this from ever overflowing */
+    overflow-y: auto;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .configTitle {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.125rem;
     font-weight: 600;
     color: #1e293b;
     border-bottom: 2px solid #e2e8f0;
     padding-bottom: 0.5rem;
+    flex-shrink: 0;
 }
 
 .formGroup {
@@ -95,6 +100,29 @@
     align-items: center;
     justify-content: center;
     background-color: white;
+    position: relative;
+}
+
+/* Remove button — absolute top-right of the chart area */
+.removeButton {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    line-height: 1;
+    transition: color 0.2s, background-color 0.2s;
+    z-index: 1;
+}
+
+.removeButton:hover {
+    color: #ef4444;
+    background-color: #fee2e2;
 }
 
 .placeholder {
