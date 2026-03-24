@@ -54,23 +54,23 @@ def select_rows(industries: list[str], companies: list[str], indicators: list[st
     years_quoted = [f'"{year}"' for year in years]
     mycursor = mydb.cursor()
 
-    industry_company_conditions = []
-    if industries_quoted:
-        industry_company_conditions.append(f"industry IN ({",".join(industries_quoted)})")
-    if companies_quoted:
-        industry_company_conditions.append(f"company_name IN ({",".join(companies_quoted)})")
-
-    industry_company_sql = " OR ".join(industry_company_conditions)
-
+    if industries_quoted and not companies_quoted:
+        industry_company_sql = f"industry IN ({",".join(industries_quoted)}) AND"
+    elif companies_quoted and not industries_quoted:
+        industry_company_sql = f"company_name IN ({",".join(companies_quoted)}) AND"
+    elif industries_quoted and companies_quoted:
+        industry_company_sql = f"(industry IN ({",".join(industries_quoted)}) OR company_name IN ({",".join(companies_quoted)})) AND"
 
     sql_string = (f"SELECT * "
                   f"FROM big_dataset_consolidated_unit_converted3 "
                   f"WHERE {industry_company_sql} "
-                  f"AND year IN ({",".join(years_quoted)}) "
+                  f"year IN ({",".join(years_quoted)}) "
                   f"AND indicator_id IN ({",".join(indicators_quoted)})")
 
     if not selectUndisclosed:
         sql_string += f" AND not_disclosed = 0"
+
+    sql_string += " LIMIT 1000"
 
     mycursor.execute(sql_string)
     results = mycursor.fetchall()

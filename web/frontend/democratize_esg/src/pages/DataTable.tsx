@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import styles from './DataTable.module.css';
 import MultiSelect, { type SelectOption } from '../components/MultiSelect';
-import { ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const API_BASE = 'http://127.0.0.1:5000/api';
 
@@ -71,16 +71,18 @@ export default function DataTable() {
 
     // Table state
     const [data, setData] = useState<DataRow[]>(MOCK_DATA);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [rowsPerPage, setRowsPerPage] = useState(10);
     const [sortConfig, setSortConfig] = useState<{ key: keyof DataRow | null, direction: 'asc' | 'desc' | null }>({ key: null, direction: null });
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
-        industry: 160,
-        companyName: 160,
-        year: 100,
-        indicator: 200,
-        isNotDisclosed: 140,
-        value: 120,
-        unit: 140,
-        details: 160
+        industry: 200,
+        companyName: 220,
+        year: 120,
+        indicator: 260,
+        isNotDisclosed: 180,
+        value: 146,
+        unit: 180,
+        details: 230
     });
 
     // Loading / error states for filters
@@ -148,6 +150,7 @@ export default function DataTable() {
             }));
 
             setData(mappedData);
+            setCurrentPage(1);
         } catch (err) {
             setDataError(err instanceof Error ? err.message : 'An error occurred');
             console.error('Data fetch error:', err);
@@ -219,14 +222,36 @@ export default function DataTable() {
         };
     }, [handleMouseMove, handleMouseUp]);
 
-    const sortedData = [...data].sort((a, b) => {
-        if (!sortConfig.key || !sortConfig.direction) return 0;
-        const aVal = a[sortConfig.key];
-        const bVal = b[sortConfig.key];
-        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-    });
+    const sortedData = useMemo(() => {
+        return [...data].sort((a, b) => {
+            if (!sortConfig.key || !sortConfig.direction) return 0;
+            const aVal = a[sortConfig.key];
+            const bVal = b[sortConfig.key];
+            if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [data, sortConfig]);
+
+    const totalPages = Math.ceil(sortedData.length / rowsPerPage);
+    const paginatedData = useMemo(() => {
+        const startIndex = (currentPage - 1) * rowsPerPage;
+        return sortedData.slice(startIndex, startIndex + rowsPerPage);
+    }, [sortedData, currentPage, rowsPerPage]);
+
+    const getPageNumbers = () => {
+        const pages = [];
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, currentPage + 2);
+
+        if (currentPage <= 2) endPage = Math.min(totalPages, 5);
+        if (currentPage >= totalPages - 1) startPage = Math.max(1, totalPages - 4);
+
+        for (let i = startPage; i <= endPage; i++) {
+            pages.push(i);
+        }
+        return pages;
+    };
 
     return (
         <div className={styles.container}>
@@ -311,10 +336,17 @@ export default function DataTable() {
                 </div>
             )}
 
+            {/* Results Info */}
+            {!isLoadingData && !dataError && data !== MOCK_DATA && (
+                <div className={styles.resultsInfo}>
+                    <p>Found <strong>{data.length}</strong> result{data.length !== 1 ? 's' : ''}</p>
+                </div>
+            )}
+
             {/* Table */}
             <div className={styles.resultsSection}>
                 <div className={styles.tableWrapper}>
-                    <table className={styles.dataTable} style={{ tableLayout: 'fixed', width: 'fit-content' }}>
+                    <table className={styles.dataTable} style={{ tableLayout: 'fixed', width: '100%', minWidth: '1536px' }}>
                         <thead>
                             <tr>
                                 {COLUMNS.map((col) => (
@@ -357,7 +389,7 @@ export default function DataTable() {
                                     </td>
                                 </tr>
                             ) : (
-                                sortedData.map((row) => (
+                                paginatedData.map((row) => (
                                     <tr key={row.id}>
                                         <td>{row.industry}</td>
                                         <td>{row.companyName}</td>
@@ -380,6 +412,56 @@ export default function DataTable() {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Pagination Controls */}
+                {sortedData.length > 0 && (
+                    <div className={styles.paginationContainer}>
+                        <div className={styles.rowsPerPageContainer}>
+                            <label htmlFor="rowsPerPage">Rows per page:</label>
+                            <select
+                                id="rowsPerPage"
+                                value={rowsPerPage}
+                                onChange={(e) => {
+                                    setRowsPerPage(Number(e.target.value));
+                                    setCurrentPage(1);
+                                }}
+                                className={styles.paginationSelect}
+                            >
+                                <option value={10}>10</option>
+                                <option value={25}>25</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                            </select>
+                        </div>
+                        <div className={styles.pageControls}>
+                            <button
+                                className={styles.pageArrow}
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <ChevronLeft size={18} />
+                            </button>
+                            
+                            {getPageNumbers().map(num => (
+                                <button
+                                    key={num}
+                                    className={`${styles.pageButton} ${currentPage === num ? styles.activePageButton : ''}`}
+                                    onClick={() => setCurrentPage(num)}
+                                >
+                                    {num}
+                                </button>
+                            ))}
+
+                            <button
+                                className={styles.pageArrow}
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                            >
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Details Popup Overlay */}

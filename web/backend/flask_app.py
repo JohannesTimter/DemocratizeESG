@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, make_response
-from database_client import select_distinct, select_indicators
-from web.backend.database_client import select_rows
+from database_client import select_distinct, select_indicators, select_rows
 
 app = Flask(__name__)
 
